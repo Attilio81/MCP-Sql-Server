@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(icacls \"C:\\Progetti Pilota\\MCPSqlServer\\setup.sh\" /grant Everyone:RX 2)",
+      "Bash(nul)",
+      "Bash(dir:*)",
+      "Bash(test:*)",
+      "Bash(pip install:*)",
+      "Bash(python test_connection.py:*)",
+      "Bash(cmd /c \"echo %APPDATA%\\Claude\\claude_desktop_config.json\")",
+      "Bash(powershell -Command \"Write-Output $env:APPDATA\\Claude\\claude_desktop_config.json\")",
+      "Bash(powershell -Command \"[Environment]::GetFolderPath(''ApplicationData'') + ''\\Claude\\claude_desktop_config.json''\")",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

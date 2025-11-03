@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "sqlserver": {
+      "command": "python",
+      "args": ["-m", "mcp_sqlserver.server"],
+      "env": {
+        "SQL_CONNECTION_STRING": "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=TestDB;UID=sa;PWD=YourPassword",
+        "MAX_ROWS": "100",
+        "QUERY_TIMEOUT": "30",
+        "POOL_SIZE": "5",
+        "POOL_TIMEOUT": "30",
+        "BLACKLIST_TABLES": "sys_logs,*_audit,*_temp",
+        "ALLOWED_SCHEMAS": "",
+        "LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}
