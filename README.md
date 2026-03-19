@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![MCP](https://img.shields.io/badge/MCP-1.0-green.svg)](https://modelcontextprotocol.io/)
+[![MCP](https://img.shields.io/badge/MCP-2025--11--25-green.svg)](https://modelcontextprotocol.io/specification/2025-11-25)
 
 A secure and production-ready MCP (Model Context Protocol) server for SQL Server database inspection and querying, designed for seamless integration with Claude Desktop and Claude Code.
 
@@ -21,6 +21,13 @@ A secure and production-ready MCP (Model Context Protocol) server for SQL Server
   - `describe_table`: Show complete schema with sample data
   - `execute_query`: Execute safe SELECT queries with timeout
   - `get_table_relationships`: Analyze foreign key relationships
+- **MCP Resources**:
+  - `db://schema/overview`: Full database schema overview (all tables, columns, types, PKs)
+  - `db://schema/tables/{table_name}`: Detailed schema for a single table
+- **MCP Prompts**:
+  - `analyze-table`: Guided analysis of a table's structure, types and relationships
+  - `query-builder`: Build a SELECT query from a natural language description
+  - `data-dictionary`: Generate a complete data dictionary for one or more tables
 
 ## Quick Start
 
@@ -355,6 +362,68 @@ Shows foreign key relationships for a table.
 **Example:**
 ```
 Show relationships for OrderDetails table
+```
+
+### Available Resources
+
+MCP Resources provide read-only context data that clients can retrieve automatically.
+
+#### `db://schema/overview`
+
+Full database schema overview — all accessible tables with columns, types and primary keys.
+
+**Example:**
+```
+Show me the database schema overview
+```
+
+#### `db://schema/tables/{table_name}`
+
+Detailed schema for a single table via URI template.
+
+**Example URI:** `db://schema/tables/dbo.Orders`
+
+---
+
+### Available Prompts
+
+MCP Prompts are pre-built templates that guide the AI through structured workflows.
+
+#### `/analyze-table`
+
+Analyzes a table's structure, types, relationships and suggests improvements.
+
+**Arguments:**
+- `table_name` (required): Table name (format: `schema.table` or `table`)
+
+**Example:**
+```
+/analyze-table table_name=dbo.Orders
+```
+
+#### `/query-builder`
+
+Helps build a SELECT query from a natural language description.
+
+**Arguments:**
+- `description` (required): What you're looking for in plain language
+- `tables` (optional): Tables to use, comma-separated
+
+**Example:**
+```
+/query-builder description="monthly order totals for 2026" tables="Orders,Customers"
+```
+
+#### `/data-dictionary`
+
+Generates a complete data dictionary for one or more tables.
+
+**Arguments:**
+- `tables` (optional): Tables to document, comma-separated (empty = all accessible tables)
+
+**Example:**
+```
+/data-dictionary tables="Orders,Customers,Products"
 ```
 
 ## Security

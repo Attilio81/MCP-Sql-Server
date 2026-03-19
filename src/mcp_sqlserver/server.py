@@ -15,7 +15,11 @@ from contextlib import contextmanager
 from queue import Queue, Empty
 import pyodbc
 from mcp.server import Server
-from mcp.types import Tool, TextContent
+from mcp.types import (
+    Tool, TextContent, CallToolResult,
+    Resource, ResourceTemplate,
+    Prompt, PromptArgument, PromptMessage, GetPromptResult,
+)
 from dotenv import load_dotenv
 
 # Load environment variables from .env file (if present)
@@ -389,12 +393,340 @@ def get_pool() -> ConnectionPool:
     return connection_pool
 
 
+# ------------------------------------------------------------------ #
+#  Resources                                                          #
+# ------------------------------------------------------------------ #
+
+@app.list_resources()
+async def list_resources() -> list[Resource]:
+    """List static resources — database schema overview."""
+    return [
+        Resource(
+            uri="db://schema/overview",
+            name="database-schema-overview",
+            title="Database Schema Overview",
+            description="Panoramica completa dello schema del database: tabelle, colonne, tipi e chiavi primarie",
+            mimeType="text/plain",
+        ),
+    ]
+
+
+@app.list_resource_templates()
+async def list_resource_templates() -> list[ResourceTemplate]:
+    """List dynamic resource templates for per-table schema inspection."""
+    return [
+        ResourceTemplate(
+            uriTemplate="db://schema/tables/{table_name}",
+            name="table-schema",
+            title="Table Schema",
+            description="Schema dettagliato di una singola tabella (colonne, tipi, chiavi)",
+            mimeType="text/plain",
+        ),
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri: str) -> str:
+    """Read a resource by URI."""
+    uri_str = str(uri)
+
+    if uri_str == "db://schema/overview":
+        return _read_schema_overview()
+
+    # Match db://schema/tables/{table_name}
+    prefix = "db://schema/tables/"
+    if uri_str.startswith(prefix):
+        table_name = uri_str[len(prefix):]
+        if not table_name:
+            raise ValueError("Nome tabella mancante nell'URI")
+        return _read_table_schema(table_name)
+
+    raise ValueError(f"Risorsa sconosciuta: {uri_str}")
+
+
+def _read_schema_overview() -> str:
+    """Return a full schema overview as plain text."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                s.name  AS SchemaName,
+                t.name  AS TableName,
+                c.name  AS ColumnName,
+                tp.name AS DataType,
+                c.max_length,
+                c.is_nullable,
+                CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS IsPK
+            FROM sys.tables t
+            INNER JOIN sys.schemas s    ON t.schema_id  = s.schema_id
+            INNER JOIN sys.columns c    ON t.object_id  = c.object_id
+            INNER JOIN sys.types   tp   ON c.user_type_id = tp.user_type_id
+            LEFT JOIN (
+                SELECT ic.object_id, ic.column_id
+                FROM sys.index_columns ic
+                INNER JOIN sys.indexes i ON ic.object_id = i.object_id
+                    AND ic.index_id = i.index_id
+                WHERE i.is_primary_key = 1
+            ) pk ON c.object_id = pk.object_id AND c.column_id = pk.column_id
+            ORDER BY s.name, t.name, c.column_id
+        """)
+        rows = cursor.fetchall()
+
+    if not rows:
+        return "Nessuna tabella trovata nel database."
+
+    lines: list[str] = ["# Database Schema Overview", ""]
+    current_table = None
+    for schema_name, table_name, col_name, data_type, max_len, nullable, is_pk in rows:
+        full_name = f"{schema_name}.{table_name}"
+
+        # Apply access controls
+        is_allowed, _ = SecurityValidator.is_table_allowed(full_name)
+        if not is_allowed:
+            continue
+
+        if full_name != current_table:
+            current_table = full_name
+            lines.append(f"\n## {full_name}")
+            lines.append("| Column | Type | Nullable | PK |")
+            lines.append("|--------|------|----------|----|")
+
+        type_str = data_type
+        if max_len and max_len > 0 and data_type in ("varchar", "nvarchar", "char", "nchar", "varbinary"):
+            type_str += f"({max_len})" if max_len != -1 else "(MAX)"
+        nullable_str = "YES" if nullable else "NO"
+        pk_str = "PK" if is_pk else "-"
+        lines.append(f"| {col_name} | {type_str} | {nullable_str} | {pk_str} |")
+
+    return "\n".join(lines)
+
+
+def _read_table_schema(table_name: str) -> str:
+    """Return the schema for a single table."""
+    # Security validation
+    is_allowed, error_msg = SecurityValidator.is_table_allowed(table_name)
+    if not is_allowed:
+        raise ValueError(f"Accesso negato: {error_msg}")
+
+    parts = [SecurityValidator._strip_brackets(p) for p in table_name.split(".")]
+    if len(parts) == 2:
+        schema, table = parts
+    else:
+        schema, table = "dbo", parts[0]
+
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                c.COLUMN_NAME,
+                c.DATA_TYPE,
+                c.CHARACTER_MAXIMUM_LENGTH,
+                c.NUMERIC_PRECISION,
+                c.NUMERIC_SCALE,
+                c.IS_NULLABLE,
+                c.COLUMN_DEFAULT,
+                CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 'PK' ELSE '' END as KeyType
+            FROM INFORMATION_SCHEMA.COLUMNS c
+            LEFT JOIN (
+                SELECT ku.TABLE_SCHEMA, ku.TABLE_NAME, ku.COLUMN_NAME
+                FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                    ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+            ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA
+                AND c.TABLE_NAME = pk.TABLE_NAME
+                AND c.COLUMN_NAME = pk.COLUMN_NAME
+            WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
+            ORDER BY c.ORDINAL_POSITION
+        """, (schema, table))
+        columns_info = cursor.fetchall()
+
+    if not columns_info:
+        raise ValueError(f"Tabella '{schema}.{table}' non trovata")
+
+    lines: list[str] = [
+        f"# Schema: {schema}.{table}",
+        "",
+        "| Column | Type | Nullable | Key | Default |",
+        "|--------|------|----------|-----|---------|",
+    ]
+    for col_name, data_type, max_len, num_prec, num_scale, nullable, default, key_type in columns_info:
+        type_str = data_type
+        if max_len and max_len > 0:
+            type_str += f"({max_len})"
+        elif num_prec:
+            if num_scale:
+                type_str += f"({num_prec},{num_scale})"
+            else:
+                type_str += f"({num_prec})"
+        default_str = default if default else "-"
+        key_str = key_type if key_type else "-"
+        lines.append(f"| {col_name} | {type_str} | {nullable} | {key_str} | {default_str} |")
+
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ #
+#  Prompts                                                            #
+# ------------------------------------------------------------------ #
+
+@app.list_prompts()
+async def list_prompts() -> list[Prompt]:
+    """List available prompt templates."""
+    return [
+        Prompt(
+            name="analyze-table",
+            title="Analyze Table",
+            description="Analizza la struttura di una tabella e suggerisce osservazioni su schema, tipi e relazioni",
+            arguments=[
+                PromptArgument(
+                    name="table_name",
+                    description="Nome della tabella (formato: schema.table o solo table per dbo)",
+                    required=True,
+                ),
+            ],
+        ),
+        Prompt(
+            name="query-builder",
+            title="Query Builder",
+            description="Aiuta a costruire una query SELECT a partire da una descrizione in linguaggio naturale",
+            arguments=[
+                PromptArgument(
+                    name="description",
+                    description="Descrizione in linguaggio naturale di cosa cercare (es. 'ordini del 2026 raggruppati per mese')",
+                    required=True,
+                ),
+                PromptArgument(
+                    name="tables",
+                    description="Tabelle coinvolte, separate da virgola (es. 'Orders,Customers')",
+                    required=False,
+                ),
+            ],
+        ),
+        Prompt(
+            name="data-dictionary",
+            title="Data Dictionary",
+            description="Genera un data dictionary completo per una o più tabelle del database",
+            arguments=[
+                PromptArgument(
+                    name="tables",
+                    description="Tabelle da documentare, separate da virgola (vuoto = tutte le tabelle accessibili)",
+                    required=False,
+                ),
+            ],
+        ),
+    ]
+
+
+@app.get_prompt()
+async def get_prompt(name: str, arguments: dict[str, str] | None = None) -> GetPromptResult:
+    """Return a prompt by name with filled arguments."""
+    arguments = arguments or {}
+
+    if name == "analyze-table":
+        table_name = arguments.get("table_name", "")
+        if not table_name:
+            raise ValueError("Argomento 'table_name' richiesto")
+        return GetPromptResult(
+            description=f"Analisi della tabella {table_name}",
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=TextContent(
+                        type="text",
+                        text=(
+                            f"Analizza la tabella '{table_name}' nel database SQL Server.\n\n"
+                            "Per favore:\n"
+                            "1. Usa il tool 'describe_table' per ottenere lo schema completo\n"
+                            "2. Usa il tool 'get_table_relationships' per vedere le relazioni\n"
+                            "3. Usa il tool 'execute_query' per un conteggio righe e statistiche base\n\n"
+                            "Poi fornisci:\n"
+                            "- Panoramica della struttura della tabella\n"
+                            "- Osservazioni sui tipi di dato scelti\n"
+                            "- Analisi delle relazioni con altre tabelle\n"
+                            "- Eventuali suggerimenti per miglioramenti allo schema"
+                        ),
+                    ),
+                ),
+            ],
+        )
+
+    elif name == "query-builder":
+        description = arguments.get("description", "")
+        if not description:
+            raise ValueError("Argomento 'description' richiesto")
+        tables = arguments.get("tables", "")
+        tables_hint = f"\nTabelle da usare: {tables}" if tables else ""
+        return GetPromptResult(
+            description=f"Costruzione query: {description}",
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=TextContent(
+                        type="text",
+                        text=(
+                            f"Ho bisogno di una query SQL Server per: {description}\n"
+                            f"{tables_hint}\n\n"
+                            "Per favore:\n"
+                            "1. Usa 'list_tables' per vedere le tabelle disponibili\n"
+                            "2. Usa 'describe_table' per capire la struttura delle tabelle rilevanti\n"
+                            "3. Costruisci una query SELECT ottimizzata\n"
+                            "4. Eseguila con 'execute_query' e mostra i risultati\n\n"
+                            "Ricorda: solo query SELECT sono permesse. "
+                            "Usa JOIN dove necessario e alias chiari per le colonne."
+                        ),
+                    ),
+                ),
+            ],
+        )
+
+    elif name == "data-dictionary":
+        tables = arguments.get("tables", "")
+        if tables:
+            scope = f"le tabelle: {tables}"
+        else:
+            scope = "tutte le tabelle accessibili"
+        return GetPromptResult(
+            description=f"Data dictionary per {scope}",
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=TextContent(
+                        type="text",
+                        text=(
+                            f"Genera un data dictionary completo per {scope} nel database.\n\n"
+                            "Per favore:\n"
+                            "1. Usa 'list_tables' per elencare le tabelle\n"
+                            "2. Per ogni tabella, usa 'describe_table' per ottenere lo schema\n"
+                            "3. Usa 'get_table_relationships' per le relazioni\n\n"
+                            "Per ogni tabella, documenta:\n"
+                            "- Nome e scopo presunto della tabella\n"
+                            "- Elenco colonne con tipo, nullable, chiave e descrizione stimata\n"
+                            "- Relazioni (FK in entrata e in uscita)\n"
+                            "- Conteggio righe approssimativo\n\n"
+                            "Formatta il risultato in Markdown strutturato, pronto per la documentazione."
+                        ),
+                    ),
+                ),
+            ],
+        )
+
+    raise ValueError(f"Prompt sconosciuto: {name}")
+
+
+# ------------------------------------------------------------------ #
+#  Tools                                                              #
+# ------------------------------------------------------------------ #
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available tools"""
     return [
         Tool(
             name="list_tables",
+            title="List Tables",
             description="Elenca tutte le tabelle accessibili del database con conteggio righe e informazioni schema",
             inputSchema={
                 "type": "object",
@@ -408,6 +740,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="describe_table",
+            title="Describe Table",
             description="Mostra schema completo di una tabella (colonne, tipi, constraints) con opzionali righe di esempio",
             inputSchema={
                 "type": "object",
@@ -429,6 +762,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="execute_query",
+            title="Execute Query",
             description=f"Esegue una query SELECT sul database (max {MAX_ROWS} righe, timeout {QUERY_TIMEOUT}s). Solo SELECT permesso.",
             inputSchema={
                 "type": "object",
@@ -443,6 +777,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_table_relationships",
+            title="Get Table Relationships",
             description="Mostra le relazioni (foreign keys) di una tabella con altre tabelle",
             inputSchema={
                 "type": "object",
@@ -459,33 +794,47 @@ async def list_tools() -> list[Tool]:
 
 
 @app.call_tool()
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+async def call_tool(name: str, arguments: Any) -> CallToolResult:
     """Handle tool calls with proper error handling"""
 
     try:
         pool = get_pool()
 
         if name == "list_tables":
-            return await handle_list_tables(pool, arguments)
+            content = await handle_list_tables(pool, arguments)
         elif name == "describe_table":
-            return await handle_describe_table(pool, arguments)
+            content = await handle_describe_table(pool, arguments)
         elif name == "execute_query":
-            return await handle_execute_query(pool, arguments)
+            content = await handle_execute_query(pool, arguments)
         elif name == "get_table_relationships":
-            return await handle_table_relationships(pool, arguments)
+            content = await handle_table_relationships(pool, arguments)
         else:
             logger.error(f"Tool sconosciuto: {name}")
-            return [TextContent(type="text", text=f"Tool '{name}' non riconosciuto")]
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Tool '{name}' non riconosciuto")],
+                isError=True,
+            )
+
+        return CallToolResult(content=content, isError=False)
 
     except TimeoutError as e:
         logger.error(f"Timeout: {e}")
-        return [TextContent(type="text", text=f"⏱️ Timeout: {str(e)}")]
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"⏱️ Timeout: {str(e)}")],
+            isError=True,
+        )
     except pyodbc.Error as e:
         logger.error(f"Errore database: {e}")
-        return [TextContent(type="text", text=f"❌ Errore database: {str(e)}")]
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"❌ Errore database: {str(e)}")],
+            isError=True,
+        )
     except Exception as e:
         logger.exception(f"Errore inaspettato in {name}")
-        return [TextContent(type="text", text=f"❌ Errore: {str(e)}")]
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"❌ Errore: {str(e)}")],
+            isError=True,
+        )
 
 
 async def handle_list_tables(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
