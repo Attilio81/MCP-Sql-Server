@@ -12,7 +12,8 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Import after path setup — the module no longer calls _parse_args() at import time
-from mcp_sqlserver.server import SecurityValidator, format_table_data  # noqa: E402
+from mcp_sqlserver.security import SecurityValidator  # noqa: E402
+from mcp_sqlserver.helpers import format_table_data  # noqa: E402
 
 
 class TestSecurityValidatorTableAllowed(unittest.TestCase):
@@ -53,14 +54,14 @@ class TestSecurityValidatorBlacklist(unittest.TestCase):
 
     def setUp(self):
         """Save and set module-level config for blacklist tests."""
-        import mcp_sqlserver.server as mod
+        import mcp_sqlserver.config as mod
         self._orig_blacklist = mod.BLACKLIST_TABLES
         self._orig_schemas = mod.ALLOWED_SCHEMAS
         mod.BLACKLIST_TABLES = ["sys_*", "*_temp"]
         mod.ALLOWED_SCHEMAS = []
 
     def tearDown(self):
-        import mcp_sqlserver.server as mod
+        import mcp_sqlserver.config as mod
         mod.BLACKLIST_TABLES = self._orig_blacklist
         mod.ALLOWED_SCHEMAS = self._orig_schemas
 
@@ -80,14 +81,14 @@ class TestSecurityValidatorBlacklist(unittest.TestCase):
 class TestSecurityValidatorAllowedSchemas(unittest.TestCase):
 
     def setUp(self):
-        import mcp_sqlserver.server as mod
+        import mcp_sqlserver.config as mod
         self._orig_schemas = mod.ALLOWED_SCHEMAS
         self._orig_blacklist = mod.BLACKLIST_TABLES
         mod.ALLOWED_SCHEMAS = ["dbo", "sales"]
         mod.BLACKLIST_TABLES = []
 
     def tearDown(self):
-        import mcp_sqlserver.server as mod
+        import mcp_sqlserver.config as mod
         mod.ALLOWED_SCHEMAS = self._orig_schemas
         mod.BLACKLIST_TABLES = self._orig_blacklist
 

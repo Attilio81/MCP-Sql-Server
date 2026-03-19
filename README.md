@@ -21,6 +21,10 @@ A secure and production-ready MCP (Model Context Protocol) server for SQL Server
   - `describe_table`: Show complete schema with sample data
   - `execute_query`: Execute safe SELECT queries with timeout
   - `get_table_relationships`: Analyze foreign key relationships
+  - `get_table_indexes`: Show indexes with type, columns, uniqueness and fill factor
+  - `search_columns`: Search columns by name across all tables (wildcard support)
+  - `get_table_statistics`: Per-column statistics (distinct values, NULLs, min/max)
+  - `get_views`: List database views with optional SQL definitions
 - **MCP Resources**:
   - `db://schema/overview`: Full database schema overview (all tables, columns, types, PKs)
   - `db://schema/tables/{table_name}`: Detailed schema for a single table
@@ -364,6 +368,56 @@ Shows foreign key relationships for a table.
 Show relationships for OrderDetails table
 ```
 
+#### `get_table_indexes`
+
+Shows all indexes on a table with type, columns, uniqueness and fill factor.
+
+**Parameters:**
+- `table_name` (required): Table name (format: `schema.table` or `table`)
+
+**Example:**
+```
+Show indexes for the Orders table
+```
+
+#### `search_columns`
+
+Searches for columns by name across the entire database, with wildcard support.
+
+**Parameters:**
+- `column_pattern` (required): Search pattern (supports `*` and `?` wildcards, e.g. `*email*`, `user_*`)
+- `schema_filter` (optional): Filter by specific schema
+
+**Example:**
+```
+Find all columns containing "email" in their name
+```
+
+#### `get_table_statistics`
+
+Shows per-column statistics: distinct values, NULL count, min/max for numeric and date columns.
+
+**Parameters:**
+- `table_name` (required): Table name (format: `schema.table` or `table`)
+
+**Example:**
+```
+Show statistics for the Customers table
+```
+
+#### `get_views`
+
+Lists all database views with optional SQL definitions.
+
+**Parameters:**
+- `schema_filter` (optional): Filter by specific schema
+- `include_definition` (optional): Include SQL definition (default: true)
+
+**Example:**
+```
+List all views in the dbo schema
+```
+
 ### Available Resources
 
 MCP Resources provide read-only context data that clients can retrieve automatically.
@@ -589,7 +643,23 @@ View logs in Claude Desktop: **Help → Show Logs**
 mcp-sqlserver/
 ├── src/mcp_sqlserver/
 │   ├── __init__.py
-│   └── server.py          # Main MCP server implementation
+│   ├── server.py          # MCP app setup, tool routing, entry point
+│   ├── config.py          # CLI args, env vars, global settings
+│   ├── security.py        # SecurityValidator, dangerous keywords & patterns
+│   ├── pool.py            # ConnectionPool with auto-reconnection
+│   ├── helpers.py         # Output formatting (Markdown tables)
+│   ├── resources.py       # MCP Resources (schema overview, table schema)
+│   ├── prompts.py         # MCP Prompts (analyze-table, query-builder, data-dictionary)
+│   └── tools/
+│       ├── __init__.py    # Re-exports all tool handlers
+│       ├── list_tables.py
+│       ├── describe_table.py
+│       ├── execute_query.py
+│       ├── relationships.py
+│       ├── indexes.py
+│       ├── search_columns.py
+│       ├── statistics.py
+│       └── views.py
 ├── tests/
 │   └── test_security_validator.py  # Unit tests for SecurityValidator & helpers
 ├── .env.example           # Environment template
