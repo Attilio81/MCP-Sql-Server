@@ -1,6 +1,26 @@
 {
+  "_comment": "Due modalità di configurazione: argomenti CLI (consigliato) oppure variabili d'ambiente.",
+
   "mcpServers": {
-    "sqlserver": {
+
+    "sqlserver-args": {
+      "_comment": "MODALITÀ CONSIGLIATA — tutti i parametri passati come argomenti dalla console di Claude",
+      "command": "python",
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=TestDB;UID=sa;PWD=YourPassword",
+        "--max-rows", "100",
+        "--query-timeout", "30",
+        "--pool-size", "5",
+        "--pool-timeout", "30",
+        "--blacklist-tables", "sys_logs,*_audit,*_temp",
+        "--allowed-schemas", "",
+        "--log-level", "INFO"
+      ]
+    },
+
+    "sqlserver-env": {
+      "_comment": "MODALITÀ ALTERNATIVA — parametri passati come variabili d'ambiente (senza file .env)",
       "command": "python",
       "args": ["-m", "mcp_sqlserver.server"],
       "env": {
@@ -14,5 +34,6 @@
         "LOG_LEVEL": "INFO"
       }
     }
+
   }
 }

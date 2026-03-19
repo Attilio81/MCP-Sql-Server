@@ -1,8 +1,10 @@
+# -*- coding: utf-8 -*-
 """
 MCP SQL Server - Secure database inspection server
 Implements connection pooling, SQL injection prevention, and comprehensive security controls
 """
 
+import argparse
 import asyncio
 import os
 import logging
@@ -16,31 +18,105 @@ from mcp.server import Server
 from mcp.types import Tool, TextContent
 from dotenv import load_dotenv
 
-# Configure logging
+# Load environment variables from .env file (if present)
+load_dotenv()
+
+
+def _parse_args():
+    """Parse command line arguments. CLI args take precedence over .env / environment variables."""
+    parser = argparse.ArgumentParser(description="MCP SQL Server")
+    parser.add_argument(
+        "--connection-string",
+        help="SQL Server connection string (e.g. Driver={ODBC Driver 17 for SQL Server};Server=...)",
+    )
+    parser.add_argument("--max-rows", type=int, help="Maximum rows returned per query (default: 100)")
+    parser.add_argument("--query-timeout", type=int, help="Query timeout in seconds (default: 30)")
+    parser.add_argument("--pool-size", type=int, help="Connection pool size (default: 5)")
+    parser.add_argument("--pool-timeout", type=int, help="Connection pool timeout in seconds (default: 30)")
+    parser.add_argument(
+        "--blacklist-tables",
+        help="Comma-separated list of blacklisted tables, supports wildcards (e.g. sys_*,*_temp)",
+    )
+    parser.add_argument(
+        "--allowed-schemas",
+        help="Comma-separated list of allowed schemas (empty = all schemas allowed)",
+    )
+    parser.add_argument("--log-level", help="Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)")
+    return parser.parse_args()
+
+
+_args = _parse_args()
+
+# Configuration — CLI args take precedence over environment variables / .env
+CONNECTION_STRING = _args.connection_string or os.getenv("SQL_CONNECTION_STRING")
+MAX_ROWS = _args.max_rows if _args.max_rows is not None else int(os.getenv("MAX_ROWS", "100"))
+QUERY_TIMEOUT = _args.query_timeout if _args.query_timeout is not None else int(os.getenv("QUERY_TIMEOUT", "30"))
+POOL_SIZE = _args.pool_size if _args.pool_size is not None else int(os.getenv("POOL_SIZE", "5"))
+POOL_TIMEOUT = _args.pool_timeout if _args.pool_timeout is not None else int(os.getenv("POOL_TIMEOUT", "30"))
+LOG_LEVEL = _args.log_level or os.getenv("LOG_LEVEL", "INFO")
+
+# Security configuration
+_blacklist_raw = _args.blacklist_tables if _args.blacklist_tables is not None else os.getenv("BLACKLIST_TABLES", "")
+BLACKLIST_TABLES = [t.strip() for t in _blacklist_raw.split(",") if t.strip()]
+_schemas_raw = _args.allowed_schemas if _args.allowed_schemas is not None else os.getenv("ALLOWED_SCHEMAS", "")
+ALLOWED_SCHEMAS = [s.strip() for s in _schemas_raw.split(",") if s.strip()]
+
+# Configure logging (after resolving LOG_LEVEL from CLI/env)
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
+    level=LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+MAX_QUERY_LENGTH = 4096  # characters
 
-# Configuration
-CONNECTION_STRING = os.getenv("SQL_CONNECTION_STRING")
-MAX_ROWS = int(os.getenv("MAX_ROWS", "100"))
-QUERY_TIMEOUT = int(os.getenv("QUERY_TIMEOUT", "30"))
-POOL_SIZE = int(os.getenv("POOL_SIZE", "5"))
-POOL_TIMEOUT = int(os.getenv("POOL_TIMEOUT", "30"))
-
-# Security configuration
-BLACKLIST_TABLES = [t.strip() for t in os.getenv("BLACKLIST_TABLES", "").split(",") if t.strip()]
-ALLOWED_SCHEMAS = [s.strip() for s in os.getenv("ALLOWED_SCHEMAS", "").split(",") if s.strip()]
-
-# Dangerous SQL keywords (for additional query validation)
+# DML / DDL / admin keywords that must never appear in user queries
 DANGEROUS_KEYWORDS = [
     "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE",
-    "EXEC", "EXECUTE", "GRANT", "REVOKE", "BACKUP", "RESTORE"
+    "EXEC", "EXECUTE", "GRANT", "REVOKE", "BACKUP", "RESTORE",
+    "MERGE", "CALL", "SIGNAL", "RESIGNAL", "RENAME",
+    # Data exfiltration / out-of-band
+    "INTO OUTFILE", "INTO DUMPFILE", "LOAD_FILE",
+    "OPENROWSET", "OPENDATASOURCE", "OPENQUERY", "OPENXML",
+    "BULK INSERT", "BULK",
+    # Timing / DoS attacks
+    "WAITFOR", "SLEEP", "BENCHMARK",
+    # Privilege escalation
+    "DBCC", "RECONFIGURE", "SHUTDOWN",
+    # Stored procedure / shell execution
+    "XP_", "SP_OACREATE", "SP_OAMETHOD", "SP_ADDLOGIN",
+]
+
+# Regex patterns that indicate injection attempts regardless of keyword position
+INJECTION_PATTERNS: list[tuple[str, str]] = [
+    # Stacked / batched statements
+    (r';', "Stacked statements (semicolons) are not allowed"),
+    # Full-width / Unicode lookalike semicolon (U+FF1B)
+    (r'；', "Unicode lookalike semicolons are not allowed"),
+    # Any SQL comment style
+    (r'--', "SQL comments are not allowed"),
+    (r'/\*', "SQL block comments are not allowed"),
+    # Encoding / obfuscation tricks
+    (r'\bCHAR\s*\(', "CHAR() encoding is not allowed"),
+    (r'\bNCHAR\s*\(', "NCHAR() encoding is not allowed"),
+    (r'\b0x[0-9A-Fa-f]+', "Hexadecimal literals are not allowed"),
+    # Dangerous string concatenation / dynamic SQL
+    (r'\bEXEC\s*\(', "Dynamic EXEC() is not allowed"),
+    (r'\bEXECUTE\s*\(', "Dynamic EXECUTE() is not allowed"),
+    (r'\bsp_executesql\b', "sp_executesql is not allowed"),
+    (r'\bxp_cmdshell\b', "xp_cmdshell is not allowed"),
+    # NULL byte injection
+    (r'\x00', "Null bytes are not allowed"),
+    # UNION-based exfiltration (still block even inside SELECT)
+    (r'\bUNION\b', "UNION queries are not allowed"),
+    # Subquery exfiltration via INTO / file ops
+    (r'\bINTO\s+OUTFILE\b', "INTO OUTFILE is not allowed"),
+    (r'\bINTO\s+DUMPFILE\b', "INTO DUMPFILE is not allowed"),
+    # Privilege / config changes
+    (r'\bDBCC\b', "DBCC commands are not allowed"),
+    (r'\bSHUTDOWN\b', "SHUTDOWN is not allowed"),
+    # Timing attacks
+    (r'\bWAITFOR\b', "WAITFOR is not allowed"),
 ]
 
 
@@ -115,78 +191,128 @@ class ConnectionPool:
 
 
 class SecurityValidator:
-    """Validates table names and queries for security"""
+    """Multi-layer validator for table names and SQL queries."""
+
+    # Allowed characters for identifiers (schema / table names).
+    # Brackets are stripped before validation to handle [dbo].[MyTable] syntax.
+    _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+    # ------------------------------------------------------------------ #
+    #  Internal helpers                                                    #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
-    def is_table_allowed(table_name: str, schema: Optional[str] = None) -> tuple[bool, str]:
+    def _normalize(text: str) -> str:
         """
-        Check if table is allowed based on blacklist and schema rules
-        Returns (is_allowed, error_message)
+        Normalise a query string before security checks:
+        - Remove null bytes
+        - Collapse whitespace / newlines to single spaces
+        - Replace full-width lookalike characters (e.g. ；ꓸ) with ASCII equivalents
+        - Fold to upper-case
+        The original query is executed as-is; this copy is used only for validation.
         """
-        # Extract schema and table from full name
-        parts = table_name.split(".")
+        # Strip null bytes
+        text = text.replace('\x00', '')
+        # Full-width semicolon → ASCII semicolon
+        text = text.replace('\uff1b', ';')
+        # Collapse all whitespace
+        text = re.sub(r'\s+', ' ', text)
+        return text.upper().strip()
+
+    @staticmethod
+    def _strip_brackets(name: str) -> str:
+        """Remove optional T-SQL bracket quoting: [dbo] → dbo"""
+        return name.strip().lstrip('[').rstrip(']')
+
+    # ------------------------------------------------------------------ #
+    #  Public API                                                          #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def is_table_allowed(cls, table_name: str, schema: Optional[str] = None) -> tuple[bool, str]:
+        """
+        Check if a table is allowed based on blacklist and schema rules.
+        Returns (is_allowed, error_message).
+        """
+        # Strip bracket quoting before processing
+        raw = table_name.strip()
+        parts = [cls._strip_brackets(p) for p in raw.split(".")]
+
         if len(parts) == 2:
             schema, table = parts
         elif len(parts) == 1:
             table = parts[0]
             schema = schema or "dbo"
         else:
-            return False, f"Nome tabella non valido: {table_name}"
+            return False, f"Invalid table name: {table_name}"
 
-        # Check allowed schemas
+        # Validate identifier format to prevent injection via table/schema names
+        if not cls._IDENTIFIER_RE.match(table):
+            return False, f"Table name contains invalid characters: {table}"
+        if not cls._IDENTIFIER_RE.match(schema):
+            return False, f"Schema name contains invalid characters: {schema}"
+
+        # Check allowed schemas whitelist
         if ALLOWED_SCHEMAS and schema not in ALLOWED_SCHEMAS:
-            return False, f"Schema '{schema}' non autorizzato. Schemi permessi: {', '.join(ALLOWED_SCHEMAS)}"
+            return False, (
+                f"Schema '{schema}' is not authorised. "
+                f"Allowed schemas: {', '.join(ALLOWED_SCHEMAS)}"
+            )
 
         # Check blacklist with wildcard support
         for pattern in BLACKLIST_TABLES:
             if fnmatch.fnmatch(table.lower(), pattern.lower()):
-                return False, f"Tabella '{table}' corrisponde al pattern blacklist '{pattern}'"
+                return False, f"Table '{table}' matches blacklist pattern '{pattern}'"
             if fnmatch.fnmatch(f"{schema}.{table}".lower(), pattern.lower()):
-                return False, f"Tabella '{schema}.{table}' corrisponde al pattern blacklist '{pattern}'"
-
-        # Validate table name format (prevent SQL injection)
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table):
-            return False, f"Nome tabella contiene caratteri non validi: {table}"
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', schema):
-            return False, f"Nome schema contiene caratteri non validi: {schema}"
+                return False, f"Table '{schema}.{table}' matches blacklist pattern '{pattern}'"
 
         return True, ""
 
-    @staticmethod
-    def validate_query(query: str) -> tuple[bool, str]:
+    @classmethod
+    def validate_query(cls, query: str) -> tuple[bool, str]:
         """
-        Validate query is safe to execute
-        Returns (is_valid, error_message)
+        Validate a query is safe to execute.
+        Returns (is_valid, error_message).
+
+        Defence layers (in order):
+          1. Length cap — prevents DoS via huge payloads
+          2. Null-byte / Unicode normalisation
+          3. Must start with SELECT (no other statement type allowed)
+          4. Stacked-statement / comment patterns (regex, on normalised text)
+          5. Dangerous keyword word-boundary check (on normalised text)
         """
-        query_upper = query.upper().strip()
+        # 1. Length guard
+        if len(query) > MAX_QUERY_LENGTH:
+            return False, (
+                f"Query exceeds maximum allowed length "
+                f"({len(query)} > {MAX_QUERY_LENGTH} characters)"
+            )
 
-        # Must be SELECT
-        if not query_upper.startswith("SELECT"):
-            return False, "Solo query SELECT sono permesse"
+        # 2. Normalise for validation (original is used for execution)
+        normalised = cls._normalize(query)
 
-        # Check for dangerous keywords
+        # 3. Must be a SELECT statement
+        if not normalised.startswith("SELECT"):
+            return False, "Only SELECT statements are allowed"
+
+        # 4. Injection pattern checks (on normalised text)
+        for pattern, description in INJECTION_PATTERNS:
+            if re.search(pattern, normalised, re.IGNORECASE):
+                logger.warning("Blocked query — pattern '%s' matched: %.120s", pattern, query)
+                return False, f"Blocked: {description}"
+
+        # 5. Dangerous keyword word-boundary check
         for keyword in DANGEROUS_KEYWORDS:
-            # Use word boundaries to avoid false positives
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, query_upper):
-                return False, f"Keyword '{keyword}' non permessa nella query"
-
-        # Check for common SQL injection patterns
-        suspicious_patterns = [
-            r';[\s]*DROP',
-            r';[\s]*DELETE',
-            r';[\s]*UPDATE',
-            r'--[\s]*$',  # SQL comments at end
-            r'/\*.*\*/',  # Multi-line comments
-            r'xp_cmdshell',
-            r'sp_executesql',
-        ]
-
-        for pattern in suspicious_patterns:
-            if re.search(pattern, query_upper):
-                return False, f"Pattern sospetto rilevato nella query"
+            # keywords with spaces (e.g. "INTO OUTFILE") are already caught above;
+            # single-token keywords get a word-boundary check to avoid false positives
+            if ' ' in keyword:
+                continue
+            if re.search(r'\b' + re.escape(keyword) + r'\b', normalised):
+                logger.warning("Blocked query — keyword '%s' found: %.120s", keyword, query)
+                return False, f"Keyword '{keyword}' is not allowed"
 
         return True, ""
+
 
 
 def format_table_data(columns: list[str], rows: list[tuple], max_col_width: int = 50) -> str:
@@ -401,8 +527,8 @@ async def handle_describe_table(pool: ConnectionPool, arguments: dict) -> list[T
     if not is_allowed:
         return [TextContent(type="text", text=f"🔒 Accesso negato: {error_msg}")]
 
-    # Parse schema.table
-    parts = table_name.split(".")
+    # Parse schema.table — strip optional bracket quoting ([dbo].[MyTable])
+    parts = [SecurityValidator._strip_brackets(p) for p in table_name.split(".")]
     if len(parts) == 2:
         schema, table = parts
     else:
@@ -463,8 +589,9 @@ async def handle_describe_table(pool: ConnectionPool, arguments: dict) -> list[T
 
         # Get sample data if requested
         if sample_rows > 0:
-            # Use parameterized query with QUOTENAME for identifiers
-            query = f"SELECT TOP (?) * FROM {schema}.{table}"
+            # schema and table have been validated against ^[a-zA-Z_][a-zA-Z0-9_]*$ above;
+            # it is safe to interpolate them as identifiers.
+            query = f"SELECT TOP (?) * FROM [{schema}].[{table}]"
             cursor.execute(query, (sample_rows,))
             columns = [column[0] for column in cursor.description]
             rows = cursor.fetchall()
@@ -492,6 +619,8 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
 
     with pool.get_connection() as conn:
         cursor = conn.cursor()
+        # Enforce read-only isolation — prevents dirty reads and any accidental writes
+        cursor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
 
         logger.info(f"Executing query: {query[:100]}...")
         cursor.execute(query)

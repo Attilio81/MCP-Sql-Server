@@ -1,21 +1,44 @@
-# Uso con Claude Code
+# Using MCP SQL Server with Claude Code
 
-Questo server MCP può essere utilizzato sia con **Claude Desktop** che con **Claude Code** (CLI).
+This server works with both **Claude Desktop** and **Claude Code** (CLI).
 
-## Configurazione per Claude Code
+## Configuration
 
-### Opzione 1: Configurazione per Progetto
+### Option 1: CLI Arguments (Recommended)
 
-Crea un file `.claude/mcp.json` nella directory del tuo progetto:
+Pass all parameters directly in `.claude/mcp.json` using command-line arguments — no `.env` file needed:
 
 ```json
 {
   "mcpServers": {
-    "sqlserver-transito": {
+    "sqlserver": {
+      "command": "python",
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;UID=YOUR_USER;PWD=YOUR_PASSWORD",
+        "--max-rows", "100",
+        "--query-timeout", "30",
+        "--pool-size", "5",
+        "--pool-timeout", "30",
+        "--blacklist-tables", "",
+        "--allowed-schemas", "",
+        "--log-level", "INFO"
+      ]
+    }
+  }
+}
+```
+
+### Option 2: Environment Variables
+
+```json
+{
+  "mcpServers": {
+    "sqlserver": {
       "command": "python",
       "args": ["-m", "mcp_sqlserver.server"],
       "env": {
-        "SQL_CONNECTION_STRING": "Driver={ODBC Driver 17 for SQL Server};Server=Egmsql2019,1433;Database=TRANSITO;UID=sa;PWD=Egm.sistemi",
+        "SQL_CONNECTION_STRING": "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;UID=YOUR_USER;PWD=YOUR_PASSWORD",
         "MAX_ROWS": "100",
         "QUERY_TIMEOUT": "30",
         "POOL_SIZE": "5",
@@ -29,285 +52,124 @@ Crea un file `.claude/mcp.json` nella directory del tuo progetto:
 }
 ```
 
-✅ **Questo è già configurato in questo progetto!** Vedi `.claude/mcp.json`
+> **Security**: `.claude/mcp.json` is listed in `.gitignore` — never commit it if it contains real credentials.
 
-### Opzione 2: Configurazione Globale
+### Windows Trusted Authentication (no password needed)
 
-Puoi anche configurarlo globalmente per usarlo in qualsiasi progetto:
-
-**Windows:**
-```
-%APPDATA%\.claude\mcp.json
+```json
+"--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
 ```
 
-**Linux/macOS:**
-```
-~/.config/claude/mcp.json
-```
+### Azure SQL
 
-## Attivazione
-
-Dopo aver creato/modificato `mcp.json`:
-
-1. **Chiudi la sessione corrente di Claude Code**
-2. **Riavvia Claude Code nella directory del progetto**
-3. Il server MCP sarà automaticamente caricato
-
-## Verifica Caricamento
-
-Claude Code mostrerà un messaggio all'avvio se il server MCP è stato caricato con successo:
-
-```
-🔌 MCP Server loaded: sqlserver-transito
+```json
+"--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER.database.windows.net;Database=YOUR_DB;Authentication=ActiveDirectoryInteractive"
 ```
 
-Se non vedi questo messaggio, controlla:
-- Il file `.claude/mcp.json` esiste ed è valido JSON
-- Python è disponibile nel PATH
-- Il package `mcp-sqlserver` è installato: `pip list | grep mcp-sqlserver`
+## Activation
 
-## Utilizzo con Claude Code
+1. Create or edit `.claude/mcp.json` in your project folder
+2. Close the current Claude Code session
+3. Restart Claude Code in the project directory
 
-Una volta caricato, puoi chiedere a Claude Code di usare il server MCP:
+Claude Code will show a message at startup if the MCP server loaded successfully.
 
-### Esempi di Prompt
-
-**1. Esplorare il database:**
-```
-Usa il server MCP SQL Server per mostrarmi tutte le tabelle del database
-```
-
-**2. Analizzare una tabella:**
-```
-Descrivi la struttura della tabella anagrax usando il server MCP
-```
-
-**3. Query dati:**
-```
-Usa il server MCP per trovare tutti i record nella tabella leadsx
-```
-
-**4. Analisi relazioni:**
-```
-Mostrami le foreign keys della tabella movoffx usando il tool MCP
-```
-
-## Tool MCP Disponibili
-
-Quando chiedi a Claude Code di usare il server MCP, avrà accesso a questi tool:
+## Available Tools
 
 ### `list_tables`
-Elenca tutte le tabelle accessibili con metriche (righe, dimensioni)
+Lists all accessible tables with metrics (row count, size).
 
-**Esempio:**
 ```
-Elenca tutte le tabelle del database usando list_tables
+List all tables in the database
 ```
 
 ### `describe_table`
-Mostra schema completo di una tabella con esempi
+Shows complete table schema with optional sample data.
 
-**Parametri:**
-- `table_name`: Nome tabella (es. "dbo.anagrax")
-- `sample_rows`: Numero righe esempio (default: 10, max: 50)
-
-**Esempio:**
 ```
-Usa describe_table per mostrare la struttura di anagrax con 5 righe di esempio
+Describe the structure of dbo.Orders with 5 sample rows
 ```
 
 ### `execute_query`
-Esegue query SELECT sicure
+Runs safe SELECT queries.
 
-**Parametri:**
-- `query`: Query SQL (solo SELECT)
-
-**Esempio:**
 ```
-Esegui questa query: SELECT TOP 10 * FROM confx WHERE id > 100
+Execute: SELECT TOP 10 * FROM Products WHERE Price > 100
 ```
 
 ### `get_table_relationships`
-Mostra foreign keys di una tabella
+Shows foreign key relationships for a table.
 
-**Parametri:**
-- `table_name`: Nome tabella
-
-**Esempio:**
 ```
-Mostrami le relazioni della tabella movoffx
+Show the foreign key relationships for the Orders table
 ```
 
-## Vantaggi con Claude Code
+## Advanced Usage Examples
 
-### 1. Analisi Automatica
+### Reverse Engineering Schema
 ```
-Analizza il database TRANSITO e crea un diagramma ER delle relazioni principali
-```
-
-### 2. Generazione Codice
-```
-Guarda la struttura di anagrax e genera una classe Python con SQLAlchemy
+Use the MCP SQL Server tool to analyze all tables and generate:
+1. A Mermaid ER diagram
+2. Equivalent CREATE TABLE scripts
+3. Complete markdown documentation
 ```
 
-### 3. Documentazione Automatica
+### Generate SQLAlchemy Models
 ```
-Documenta tutte le tabelle del database in un file markdown
-```
-
-### 4. Data Analysis
-```
-Analizza i dati in leadsx e trova pattern o anomalie
+Look at the structure of dbo.Users and generate a Python SQLAlchemy model class
 ```
 
-## Debug
+### Data Analysis
+```
+Analyze the data in the Orders table and find patterns or anomalies from the last 30 days
+```
 
-### MCP Server non si carica
+## Troubleshooting
 
-**1. Controlla la sintassi JSON:**
+### MCP server not loading
+
+**1. Check JSON syntax:**
 ```bash
 python -c "import json; json.load(open('.claude/mcp.json'))"
 ```
 
-**2. Testa il server manualmente:**
+**2. Test the server manually:**
 ```bash
-python -m mcp_sqlserver.server
+python -m mcp_sqlserver.server --connection-string "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
 ```
+The server should wait for stdin input. Press `Ctrl+C` to exit.
 
-Dovrebbe rimanere in attesa di input. Premi `Ctrl+C` per uscire.
-
-**3. Verifica le credenziali:**
+**3. Test the connection:**
 ```bash
 python test_connection.py
 ```
 
-### Timeout o Connessioni Lente
+### Timeout or slow connections
 
-Aumenta i timeout in `.claude/mcp.json`:
+Increase timeouts in `.claude/mcp.json`:
 ```json
-{
-  "env": {
-    "QUERY_TIMEOUT": "60",
-    "POOL_TIMEOUT": "60"
-  }
-}
+"--query-timeout", "60",
+"--pool-timeout", "60"
 ```
 
-### Password con Caratteri Speciali
+### Passwords with special characters
 
-Se la password contiene caratteri speciali, assicurati che siano correttamente escaped nel JSON:
+If the password contains special characters, make sure they are properly escaped in the JSON string:
 - `"` → `\"`
 - `\` → `\\`
-- `/` → `\/` (opzionale)
 
-## Differenze con Claude Desktop
+### Package not found
 
-| Feature | Claude Desktop | Claude Code |
-|---------|---------------|-------------|
-| Configurazione | `%APPDATA%/Claude/claude_desktop_config.json` | `.claude/mcp.json` o `~/.config/claude/mcp.json` |
-| Scope | Globale | Per progetto o globale |
-| Riavvio | Riavvia app | Riavvia sessione |
-| UI | Interfaccia grafica | CLI/Terminal |
-| Use Case | Esplorazione interattiva | Automazione, scripting, analisi |
-
-## Best Practices
-
-### 1. Usa per progetto
-Configura `.claude/mcp.json` in ogni progetto che accede al database per mantenere le credenziali isolate.
-
-### 2. Sicurezza
-- Non committare `.claude/mcp.json` con credenziali (è già in `.gitignore`)
-- Usa variabili d'ambiente per credenziali sensibili:
-
-```json
-{
-  "mcpServers": {
-    "sqlserver": {
-      "command": "python",
-      "args": ["-m", "mcp_sqlserver.server"],
-      "env": {
-        "SQL_CONNECTION_STRING": "${SQL_TRANSITO_CONN}"
-      }
-    }
-  }
-}
-```
-
-### 3. Limiti Appropriati
-Per Claude Code (analisi dati più pesanti), considera:
-```json
-{
-  "env": {
-    "MAX_ROWS": "500",
-    "QUERY_TIMEOUT": "60"
-  }
-}
-```
-
-## Troubleshooting Common Issues
-
-### "Server sqlserver-transito not found"
-- Il server non è stato caricato
-- Riavvia Claude Code completamente
-- Verifica che `.claude/mcp.json` esista e sia valido
-
-### "Connection timeout"
-- Il database non è raggiungibile
-- Verifica firewall e credenziali
-- Aumenta `POOL_TIMEOUT`
-
-### "Package mcp-sqlserver not found"
 ```bash
-cd C:\Progetti Pilota\MCPSqlServer
 pip install -e .
 ```
 
-### "Permission denied"
-- L'utente SQL non ha permessi sufficienti
-- Verifica GRANT/PERMISSIONS sul database
+## Comparison: Claude Desktop vs Claude Code
 
-## Esempi Avanzati
-
-### 1. Reverse Engineering Schema
-```
-Usa il server MCP per analizzare tutte le tabelle del database e genera:
-1. Diagramma ER in Mermaid
-2. Script CREATE TABLE equivalenti
-3. Documentazione markdown completa
-```
-
-### 2. Data Migration Script
-```
-Analizza le tabelle anagrax e leadsx, poi genera uno script Python
-per migrare i dati da SQL Server a PostgreSQL
-```
-
-### 3. Data Quality Report
-```
-Usa il server MCP per controllare:
-- Valori NULL in colonne NOT NULL
-- Duplicate keys
-- Foreign key violations
-- Formati dati invalidi
-
-Genera un report con i problemi trovati
-```
-
-### 4. API Generator
-```
-Basandoti sulla struttura delle tabelle, genera un'API REST
-con FastAPI che espone endpoint CRUD per ogni tabella
-```
-
-## Risorse
-
-- [MCP Documentation](https://modelcontextprotocol.io/)
-- [Claude Code Docs](https://docs.claude.com/claude-code)
-- [SQL Server ODBC Driver](https://learn.microsoft.com/en-us/sql/connect/odbc/)
-
-## Supporto
-
-Per problemi o domande:
-1. Controlla i log: `LOG_LEVEL=DEBUG` in `mcp.json`
-2. Testa connessione: `python test_connection.py`
-3. Verifica installazione: `pip show mcp-sqlserver`
+| Feature | Claude Desktop | Claude Code |
+|---------|---------------|-------------|
+| Config file | `claude_desktop_config.json` | `.claude/mcp.json` |
+| Scope | Global | Per-project or global |
+| Restart required | Restart app | Restart session |
+| Interface | GUI / Terminal | CLI / Terminal |
+| Typical use | Interactive exploration | Automation, scripting, analysis |
