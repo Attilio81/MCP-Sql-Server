@@ -22,6 +22,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
 def _parse_args():
     """Parse command line arguments. CLI args take precedence over .env / environment variables."""
     parser = argparse.ArgumentParser(description="MCP SQL Server")
@@ -41,31 +44,55 @@ def _parse_args():
         "--allowed-schemas",
         help="Comma-separated list of allowed schemas (empty = all schemas allowed)",
     )
-    parser.add_argument("--log-level", help="Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO)")
+    parser.add_argument("--log-level", help="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)")
     return parser.parse_args()
 
 
-_args = _parse_args()
+def _load_config():
+    """Load configuration from CLI args and environment variables. Called lazily."""
+    global CONNECTION_STRING, MAX_ROWS, QUERY_TIMEOUT, POOL_SIZE, POOL_TIMEOUT
+    global LOG_LEVEL, BLACKLIST_TABLES, ALLOWED_SCHEMAS, logger
 
-# Configuration — CLI args take precedence over environment variables / .env
-CONNECTION_STRING = _args.connection_string or os.getenv("SQL_CONNECTION_STRING")
-MAX_ROWS = _args.max_rows if _args.max_rows is not None else int(os.getenv("MAX_ROWS", "100"))
-QUERY_TIMEOUT = _args.query_timeout if _args.query_timeout is not None else int(os.getenv("QUERY_TIMEOUT", "30"))
-POOL_SIZE = _args.pool_size if _args.pool_size is not None else int(os.getenv("POOL_SIZE", "5"))
-POOL_TIMEOUT = _args.pool_timeout if _args.pool_timeout is not None else int(os.getenv("POOL_TIMEOUT", "30"))
-LOG_LEVEL = _args.log_level or os.getenv("LOG_LEVEL", "INFO")
+    _args = _parse_args()
 
-# Security configuration
-_blacklist_raw = _args.blacklist_tables if _args.blacklist_tables is not None else os.getenv("BLACKLIST_TABLES", "")
-BLACKLIST_TABLES = [t.strip() for t in _blacklist_raw.split(",") if t.strip()]
-_schemas_raw = _args.allowed_schemas if _args.allowed_schemas is not None else os.getenv("ALLOWED_SCHEMAS", "")
-ALLOWED_SCHEMAS = [s.strip() for s in _schemas_raw.split(",") if s.strip()]
+    # Configuration — CLI args take precedence over environment variables / .env
+    CONNECTION_STRING = _args.connection_string or os.getenv("SQL_CONNECTION_STRING")
+    MAX_ROWS = _args.max_rows if _args.max_rows is not None else int(os.getenv("MAX_ROWS", "100"))
+    QUERY_TIMEOUT = _args.query_timeout if _args.query_timeout is not None else int(os.getenv("QUERY_TIMEOUT", "30"))
+    POOL_SIZE = _args.pool_size if _args.pool_size is not None else int(os.getenv("POOL_SIZE", "5"))
+    POOL_TIMEOUT = _args.pool_timeout if _args.pool_timeout is not None else int(os.getenv("POOL_TIMEOUT", "30"))
 
-# Configure logging (after resolving LOG_LEVEL from CLI/env)
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+    # Validate and set log level
+    raw_log_level = (_args.log_level or os.getenv("LOG_LEVEL", "INFO")).upper()
+    if raw_log_level not in _VALID_LOG_LEVELS:
+        raw_log_level = "INFO"
+        logging.warning("Invalid LOG_LEVEL '%s', falling back to INFO. Valid: %s",
+                        _args.log_level or os.getenv("LOG_LEVEL"), ", ".join(sorted(_VALID_LOG_LEVELS)))
+    LOG_LEVEL = raw_log_level
+
+    # Security configuration
+    _blacklist_raw = _args.blacklist_tables if _args.blacklist_tables is not None else os.getenv("BLACKLIST_TABLES", "")
+    BLACKLIST_TABLES = [t.strip() for t in _blacklist_raw.split(",") if t.strip()]
+    _schemas_raw = _args.allowed_schemas if _args.allowed_schemas is not None else os.getenv("ALLOWED_SCHEMAS", "")
+    ALLOWED_SCHEMAS = [s.strip().lower() for s in _schemas_raw.split(",") if s.strip()]
+
+    # Configure logging (after resolving LOG_LEVEL from CLI/env)
+    logging.basicConfig(
+        level=LOG_LEVEL,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+
+
+# Module-level defaults (overwritten by _load_config at startup)
+CONNECTION_STRING: Optional[str] = None
+MAX_ROWS = 100
+QUERY_TIMEOUT = 30
+POOL_SIZE = 5
+POOL_TIMEOUT = 30
+LOG_LEVEL = "INFO"
+BLACKLIST_TABLES: list[str] = []
+ALLOWED_SCHEMAS: list[str] = []
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 4096  # characters
@@ -151,10 +178,13 @@ class ConnectionPool:
             # Verify connection is alive
             try:
                 conn.execute("SELECT 1").fetchone()
-            except:
+            except Exception as e:
                 # Connection is dead, create new one
-                logger.warning("Connessione morta nel pool, creazione nuova connessione")
-                conn.close()
+                logger.warning("Connessione morta nel pool, creazione nuova connessione: %s", e)
+                try:
+                    conn.close()
+                except Exception as close_err:
+                    logger.debug("Errore chiusura connessione morta: %s", close_err)
                 conn = pyodbc.connect(self.connection_string, timeout=self.timeout)
 
             yield conn
@@ -167,17 +197,18 @@ class ConnectionPool:
                     # Rollback any pending transactions
                     conn.rollback()
                     self.pool.put(conn)
-                except:
+                except Exception as e:
+                    logger.warning("Connessione rotta durante il rilascio nel pool: %s", e)
                     # Connection is broken, create new one for pool
                     try:
                         conn.close()
-                    except:
-                        pass
+                    except Exception as close_err:
+                        logger.debug("Errore chiusura connessione rotta: %s", close_err)
                     try:
                         new_conn = pyodbc.connect(self.connection_string, timeout=self.timeout)
                         self.pool.put(new_conn)
-                    except Exception as e:
-                        logger.error(f"Impossibile ripristinare connessione nel pool: {e}")
+                    except Exception as reconn_err:
+                        logger.error(f"Impossibile ripristinare connessione nel pool: {reconn_err}")
 
     def close_all(self):
         """Close all connections in pool"""
@@ -186,8 +217,8 @@ class ConnectionPool:
             try:
                 conn = self.pool.get_nowait()
                 conn.close()
-            except:
-                pass
+            except Exception as e:
+                logger.debug("Errore chiusura connessione durante close_all: %s", e)
 
 
 class SecurityValidator:
@@ -253,7 +284,7 @@ class SecurityValidator:
             return False, f"Schema name contains invalid characters: {schema}"
 
         # Check allowed schemas whitelist
-        if ALLOWED_SCHEMAS and schema not in ALLOWED_SCHEMAS:
+        if ALLOWED_SCHEMAS and schema.lower() not in ALLOWED_SCHEMAS:
             return False, (
                 f"Schema '{schema}' is not authorised. "
                 f"Allowed schemas: {', '.join(ALLOWED_SCHEMAS)}"
@@ -276,10 +307,11 @@ class SecurityValidator:
 
         Defence layers (in order):
           1. Length cap — prevents DoS via huge payloads
-          2. Null-byte / Unicode normalisation
-          3. Must start with SELECT (no other statement type allowed)
-          4. Stacked-statement / comment patterns (regex, on normalised text)
-          5. Dangerous keyword word-boundary check (on normalised text)
+          2. Null-byte rejection (before normalisation)
+          3. Unicode / whitespace normalisation
+          4. Must start with SELECT (no other statement type allowed)
+          5. Stacked-statement / comment patterns (regex, on normalised text)
+          6. Dangerous keyword word-boundary check (on normalised text)
         """
         # 1. Length guard
         if len(query) > MAX_QUERY_LENGTH:
@@ -288,20 +320,24 @@ class SecurityValidator:
                 f"({len(query)} > {MAX_QUERY_LENGTH} characters)"
             )
 
-        # 2. Normalise for validation (original is used for execution)
+        # 2. Reject null bytes before normalisation strips them
+        if '\x00' in query:
+            return False, "Blocked: Null bytes are not allowed"
+
+        # 3. Normalise for validation (original is used for execution)
         normalised = cls._normalize(query)
 
-        # 3. Must be a SELECT statement
+        # 4. Must be a SELECT statement
         if not normalised.startswith("SELECT"):
             return False, "Only SELECT statements are allowed"
 
-        # 4. Injection pattern checks (on normalised text)
+        # 5. Injection pattern checks (on normalised text)
         for pattern, description in INJECTION_PATTERNS:
             if re.search(pattern, normalised, re.IGNORECASE):
                 logger.warning("Blocked query — pattern '%s' matched: %.120s", pattern, query)
                 return False, f"Blocked: {description}"
 
-        # 5. Dangerous keyword word-boundary check
+        # 6. Dangerous keyword word-boundary check
         for keyword in DANGEROUS_KEYWORDS:
             # keywords with spaces (e.g. "INTO OUTFILE") are already caught above;
             # single-token keywords get a word-boundary check to avoid false positives
@@ -322,6 +358,7 @@ def format_table_data(columns: list[str], rows: list[tuple], max_col_width: int 
 
     def truncate(val, max_len=max_col_width):
         s = str(val) if val is not None else "NULL"
+        s = s.replace("|", "\\|")
         return s if len(s) <= max_len else s[:max_len-3] + "..."
 
     # Header
@@ -614,11 +651,18 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
     # Add TOP clause if not present
     query_upper = query.upper()
     if "TOP" not in query_upper and "TOP(" not in query_upper:
-        # Insert TOP after SELECT
-        query = re.sub(r'^SELECT\s+', f'SELECT TOP {MAX_ROWS} ', query, flags=re.IGNORECASE)
+        # Insert TOP after SELECT, respecting DISTINCT / ALL keywords
+        query = re.sub(
+            r'^SELECT\s+(DISTINCT\s+|ALL\s+)?',
+            lambda m: f'SELECT {(m.group(1) or "").strip()} TOP {MAX_ROWS} '.replace("  ", " "),
+            query,
+            count=1,
+            flags=re.IGNORECASE,
+        )
 
     with pool.get_connection() as conn:
         cursor = conn.cursor()
+        cursor.timeout = QUERY_TIMEOUT
         # Enforce read-only isolation — prevents dirty reads and any accidental writes
         cursor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
 
@@ -649,8 +693,8 @@ async def handle_table_relationships(pool: ConnectionPool, arguments: dict) -> l
     if not is_allowed:
         return [TextContent(type="text", text=f"🔒 Accesso negato: {error_msg}")]
 
-    # Parse schema.table
-    parts = table_name.split(".")
+    # Parse schema.table — strip optional bracket quoting ([dbo].[MyTable])
+    parts = [SecurityValidator._strip_brackets(p) for p in table_name.split(".")]
     if len(parts) == 2:
         schema, table = parts
     else:
@@ -713,9 +757,15 @@ async def handle_table_relationships(pool: ConnectionPool, arguments: dict) -> l
 
 async def main():
     """Entry point"""
+    _load_config()
+
     from mcp.server.stdio import stdio_server
 
     logger.info("Avvio MCP SQL Server...")
+
+    if not CONNECTION_STRING:
+        logger.error("SQL_CONNECTION_STRING non configurata. Imposta la variabile d'ambiente o usa --connection-string.")
+        return
 
     try:
         async with stdio_server() as (read_stream, write_stream):
@@ -731,5 +781,10 @@ async def main():
         logger.info("MCP SQL Server terminato")
 
 
-if __name__ == "__main__":
+def run():
+    """Synchronous entry point for console_scripts."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()

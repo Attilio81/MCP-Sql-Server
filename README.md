@@ -222,7 +222,7 @@ See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for detailed Claude Code integr
 | `--pool-timeout` | `POOL_TIMEOUT` | `30` | Pool acquisition timeout (s) |
 | `--blacklist-tables` | `BLACKLIST_TABLES` | *(none)* | Comma-separated patterns, wildcards ok |
 | `--allowed-schemas` | `ALLOWED_SCHEMAS` | *(all)* | Comma-separated schema whitelist |
-| `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
 
 ## Usage
 
@@ -388,7 +388,7 @@ BLACKLIST_TABLES=dbo.sensitive_*,admin.*
 
 ### Schema Whitelist
 
-Restrict access to specific schemas:
+Restrict access to specific schemas (case-insensitive matching):
 
 ```env
 # Only allow these schemas
@@ -428,11 +428,18 @@ See [SECURITY.md](SECURITY.md) for detailed security guidelines.
 
 ### Security Validator
 
-Multi-layered validation:
-1. **Blacklist matching**: Pattern-based table filtering with wildcards
-2. **Schema validation**: Regex validation to prevent SQL injection
-3. **Query parsing**: Detection of dangerous keywords and patterns
-4. **Identifier validation**: Validates table/column names format
+Multi-layered query validation (applied in order):
+1. **Length cap**: Rejects queries exceeding 4096 characters (DoS prevention)
+2. **Null-byte rejection**: Blocks null bytes before normalisation
+3. **Unicode / whitespace normalisation**: Collapses whitespace, replaces full-width lookalike characters
+4. **SELECT-only enforcement**: Only SELECT statements are allowed
+5. **Injection pattern detection**: Regex-based detection of semicolons, comments, UNION, EXEC(), encoding tricks, timing attacks, etc.
+6. **Dangerous keyword check**: Word-boundary match against DML/DDL/admin keywords
+
+Additional layers for table access:
+- **Blacklist matching**: Pattern-based table filtering with wildcards
+- **Schema whitelist**: Case-insensitive schema restriction
+- **Identifier validation**: Regex validation of table/schema names to prevent injection
 
 ### Error Handling
 
@@ -440,6 +447,9 @@ Stratified error management:
 - `TimeoutError`: Pool exhausted or slow queries
 - `pyodbc.Error`: Database-specific errors (connection, syntax, permissions)
 - `Exception`: Generic fallback with full stack trace logging
+
+All connection pool errors are now logged with specific exception types (no silent failures).
+Query timeout is enforced at the cursor level via `cursor.timeout`.
 
 ## Testing
 
@@ -511,7 +521,8 @@ mcp-sqlserver/
 ├── src/mcp_sqlserver/
 │   ├── __init__.py
 │   └── server.py          # Main MCP server implementation
-├── tests/                 # Unit tests (TODO)
+├── tests/
+│   └── test_security_validator.py  # Unit tests for SecurityValidator & helpers
 ├── .env.example           # Environment template
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
@@ -528,9 +539,15 @@ mcp-sqlserver/
 # Install dev dependencies
 pip install pytest pytest-asyncio
 
-# Run tests
-pytest tests/
+# Run unit tests (no database required)
+pytest tests/ -v
 ```
+
+The unit test suite covers:
+- Table access validation (blacklist, schema whitelist, bracket quoting)
+- Query validation (injection patterns, dangerous keywords, null bytes, Unicode tricks)
+- Markdown output formatting (pipe escaping, truncation, NULL values)
+- Internal helpers (`_normalize`, `_strip_brackets`)
 
 ### Code Quality
 

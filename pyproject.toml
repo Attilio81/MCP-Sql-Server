@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-sqlserver = "mcp_sqlserver.server:main"
+mcp-sqlserver = "mcp_sqlserver.server:run"
 
 [build-system]
 requires = ["setuptools>=61.0"]
