@@ -104,74 +104,106 @@ brew install msodbcsql17
 
 ## Configuration
 
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-# Connection string
-SQL_CONNECTION_STRING=Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=MyDB;UID=user;PWD=password
-
-# Security limits
-MAX_ROWS=100
-QUERY_TIMEOUT=30
-
-# Connection pool
-POOL_SIZE=5
-POOL_TIMEOUT=30
-
-# Security: Table blacklist (supports wildcards)
-BLACKLIST_TABLES=sys_*,*_audit,*_temp,internal_*
-
-# Security: Schema whitelist (empty = all allowed)
-ALLOWED_SCHEMAS=dbo,sales,hr
-
-# Logging
-LOG_LEVEL=INFO
-```
+All parameters are passed as **command-line arguments** directly in the Claude config file — no `.env` file required. CLI arguments take precedence over environment variables and `.env`.
 
 ### Claude Desktop Configuration
 
-Add to `claude_desktop_config.json`:
+Edit `claude_desktop_config.json`:
 
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Linux:** `~/.config/Claude/claude_desktop_config.json`
+| Platform | Path |
+|---|---|
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
 
 ```json
 {
   "mcpServers": {
     "sqlserver": {
       "command": "python",
-      "args": ["-m", "mcp_sqlserver.server"],
-      "env": {
-        "SQL_CONNECTION_STRING": "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=MyDB;UID=user;PWD=password",
-        "MAX_ROWS": "100",
-        "QUERY_TIMEOUT": "30",
-        "BLACKLIST_TABLES": "sys_*,*_audit",
-        "ALLOWED_SCHEMAS": "dbo",
-        "LOG_LEVEL": "INFO"
-      }
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;UID=user;PWD=password",
+        "--max-rows", "100",
+        "--query-timeout", "30",
+        "--pool-size", "5",
+        "--pool-timeout", "30",
+        "--blacklist-tables", "sys_*,*_audit,*_temp",
+        "--allowed-schemas", "dbo",
+        "--log-level", "INFO"
+      ]
     }
   }
 }
 ```
 
-Restart Claude Desktop to load the MCP server.
+Restart Claude Desktop after editing.
+
+#### Windows Trusted Authentication (no password)
+
+```json
+"--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
+```
+
+#### Azure SQL
+
+```json
+"--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER.database.windows.net;Database=YOUR_DB;Authentication=ActiveDirectoryInteractive"
+```
+
+### Multiple Databases
+
+Define one MCP server entry per database — Claude will have all of them available simultaneously and will route queries to the right one based on the server name or your instructions:
+
+```json
+{
+  "mcpServers": {
+    "db-vendite": {
+      "command": "python",
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=srv1;Database=Vendite;Trusted_Connection=yes",
+        "--allowed-schemas", "dbo",
+        "--max-rows", "100"
+      ]
+    },
+    "db-magazzino": {
+      "command": "python",
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=srv2;Database=Magazzino;UID=user;PWD=password",
+        "--allowed-schemas", "dbo,wms"
+      ]
+    },
+    "db-contabilita": {
+      "command": "python",
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=srv1;Database=Contabilita;Trusted_Connection=yes",
+        "--blacklist-tables", "*_audit,sys_*"
+      ]
+    }
+  }
+}
+```
+
+In the chat you can then ask:
+> *"On the **Magazzino** database, show me all tables"*
+> *"On the **Vendite** database, how many orders were placed in 2026?"*
 
 ### Claude Code Configuration
 
-Create `.claude/mcp.json` in your project directory:
+Create `.claude/mcp.json` in your project directory (already in `.gitignore`):
 
 ```json
 {
   "mcpServers": {
     "sqlserver": {
       "command": "python",
-      "args": ["-m", "mcp_sqlserver.server"],
-      "env": {
-        "SQL_CONNECTION_STRING": "Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=MyDB;UID=user;PWD=password"
-      }
+      "args": [
+        "-m", "mcp_sqlserver.server",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
+      ]
     }
   }
 }
@@ -179,28 +211,99 @@ Create `.claude/mcp.json` in your project directory:
 
 See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for detailed Claude Code integration.
 
+### All Available Parameters
+
+| CLI Argument | Env Variable | Default | Description |
+|---|---|---|---|
+| `--connection-string` | `SQL_CONNECTION_STRING` | *(required)* | ODBC connection string |
+| `--max-rows` | `MAX_ROWS` | `100` | Max rows returned per query |
+| `--query-timeout` | `QUERY_TIMEOUT` | `30` | Query timeout in seconds |
+| `--pool-size` | `POOL_SIZE` | `5` | Connection pool size |
+| `--pool-timeout` | `POOL_TIMEOUT` | `30` | Pool acquisition timeout (s) |
+| `--blacklist-tables` | `BLACKLIST_TABLES` | *(none)* | Comma-separated patterns, wildcards ok |
+| `--allowed-schemas` | `ALLOWED_SCHEMAS` | *(all)* | Comma-separated schema whitelist |
+| `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+
 ## Usage
 
-### With Claude Desktop
+You **never need to pass credentials or connection strings in the chat**. The connection is configured once in the config file and is transparent in every conversation.
 
-After configuration, ask Claude:
+### Example Chat Session
 
-- *"Show me all tables in the database"*
-- *"Describe the structure of the Users table with 10 sample rows"*
-- *"Execute this query: SELECT * FROM Orders WHERE OrderDate > '2024-01-01'"*
-- *"Show me the foreign key relationships for the Products table"*
+**You:** *Show me all the tables in the database*
+
+**Claude:** *(calls `list_tables`)* 
+```
+# Database Tables — 12 found
+
+## Schema: dbo
+- **Customers** (15,432 rows, 2.14 MB)
+- **Orders** (98,201 rows, 8.77 MB)
+- **Products** (1,203 rows, 0.43 MB)
+- ~~audit_trail~~ 🔒 matches blacklist pattern *_trail
+```
+
+---
+
+**You:** *Describe the Orders table with 5 sample rows*
+
+**Claude:** *(calls `describe_table`)* 
+```
+# Schema: dbo.Orders
+
+| Column      | Type          | Nullable | Key |
+|-------------|---------------|----------|-----|
+| OrderID     | int(10)       | NO       | PK  |
+| CustomerID  | int(10)       | NO       |     |
+| OrderDate   | datetime      | NO       |     |
+| TotalAmount | decimal(18,2) | YES      |     |
+```
+
+---
+
+**You:** *How many orders per month in 2026?*
+
+**Claude:** *(calls `execute_query`)* 
+```sql
+SELECT TOP 100 MONTH(OrderDate) AS Month, COUNT(*) AS Orders
+FROM dbo.Orders
+WHERE YEAR(OrderDate) = 2026
+GROUP BY MONTH(OrderDate)
+ORDER BY Month
+```
+| Month | Orders |
+|-------|--------|
+| 1     | 1,203  |
+| 2     | 987    |
+| 3     | 1,456  |
+
+---
+
+**You:** *Run: SELECT * FROM users; DROP TABLE Orders--*
+
+**Claude:** 🔒 Query not valid: **Stacked statements (semicolons) are not allowed**
+
+---
+
+### With Multiple Databases
+
+When multiple servers are configured, address them by name:
+
+- *"On the **db-vendite** database, show me all tables"*
+- *"On **db-magazzino**, describe the Stock table"*
+- *"Compare orders between **db-vendite** and **db-contabilita**"*
 
 ### With Claude Code
 
 ```bash
-# Start Claude Code in project directory
+# Start Claude Code in your project directory
 cd your-project
 claude
 
-# Then ask:
-"Use the MCP SQL Server to list all tables in the database"
-"Analyze the Users table schema and generate SQLAlchemy models"
-"Find all records in Orders table from 2024 and create a summary"
+# Then ask naturally:
+"List all tables in the database"
+"Analyze the Users table and generate a SQLAlchemy model"
+"Find all orders from 2026 and summarize them by customer"
 ```
 
 ### Available Tools
