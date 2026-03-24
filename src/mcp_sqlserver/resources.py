@@ -24,6 +24,17 @@ def register_resources(app, get_pool):
                 description="Panoramica completa dello schema del database: tabelle, colonne, tipi e chiavi primarie",
                 mimeType="text/plain",
             ),
+            Resource(
+                uri="db://dictionary",
+                name="semantic-dictionary",
+                title="Semantic Dictionary",
+                description=(
+                    "Dizionario semantico del database: mappa tra linguaggio di business e schema fisico. "
+                    "Carica questa risorsa all'inizio della sessione per conoscere le associazioni già scoperte "
+                    "(termini utente → tabelle/colonne, filtri comuni, relazioni notevoli)."
+                ),
+                mimeType="text/markdown",
+            ),
         ]
 
     @app.list_resource_templates()
@@ -46,6 +57,9 @@ def register_resources(app, get_pool):
 
         if uri_str == "db://schema/overview":
             return _read_schema_overview(get_pool)
+
+        if uri_str == "db://dictionary":
+            return _read_dictionary()
 
         # Match db://schema/tables/{table_name}
         prefix = "db://schema/tables/"
@@ -180,3 +194,12 @@ def _read_table_schema(get_pool, table_name: str) -> str:
         lines.append(f"| {col_name} | {type_str} | {nullable} | {key_str} | {default_str} |")
 
     return "\n".join(lines)
+
+
+def _read_dictionary() -> str:
+    """Return the semantic dictionary file contents, or empty string if not created yet."""
+    from pathlib import Path
+    dict_path = Path(config.DICTIONARY_FILE)
+    if not dict_path.exists():
+        return ""
+    return dict_path.read_text(encoding="utf-8")

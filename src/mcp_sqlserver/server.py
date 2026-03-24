@@ -27,6 +27,7 @@ from mcp_sqlserver.tools import (
     handle_search_columns,
     handle_table_statistics,
     handle_get_views,
+    handle_update_dictionary,
 )
 
 logger = logging.getLogger(__name__)
@@ -195,6 +196,44 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="update_dictionary",
+            title="Update Semantic Dictionary",
+            description=(
+                "Salva una nuova scoperta semantica nel dizionario del database. "
+                "Chiama questo tool ogni volta che scopri un'associazione non ovvia tra linguaggio di business "
+                "e schema fisico:\n"
+                "- Quando identifichi quale tabella/colonne corrispondono a un'entità nominata dall'utente "
+                "(es. 'cliente' → tabella `anagra`)\n"
+                "- Quando apprendi un'espressione filtro ricorrente (es. 'attivo' → `stato = 'A'`)\n"
+                "- Quando scopri una relazione join non deducibile dai nomi delle colonne\n\n"
+                "Non chiamare per informazioni già nel dizionario o per mappings ovvi dal nome della tabella. "
+                "Notifica sempre l'utente dopo aver salvato (es. 'Ho salvato nel dizionario che ...').\n\n"
+                "Row formats:\n"
+                "  entities:  | termine utente | tabella | campi chiave | note |\n"
+                "  filters:   | espressione utente | sql equivalente | note |\n"
+                "  relations: | tabella da | campo | tabella a | campo | descrizione |"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "string",
+                        "enum": ["entities", "filters", "relations"],
+                        "description": "Categoria: entities (termini→tabelle), filters (espressioni→SQL), relations (join tra tabelle)",
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "Valore del primo campo della riga (usato per deduplicazione, es. 'cliente')",
+                    },
+                    "row": {
+                        "type": "string",
+                        "description": "Riga completa in formato Markdown table, es. '| cliente | anagra | codice, cognome | |'",
+                    },
+                },
+                "required": ["section", "key", "row"],
+            },
+        ),
     ]
 
 
@@ -221,6 +260,8 @@ async def call_tool(name: str, arguments: Any) -> CallToolResult:
             content = await handle_table_statistics(pool, arguments)
         elif name == "get_views":
             content = await handle_get_views(pool, arguments)
+        elif name == "update_dictionary":
+            content = await handle_update_dictionary(pool, arguments)
         else:
             logger.error(f"Tool sconosciuto: {name}")
             return CallToolResult(
