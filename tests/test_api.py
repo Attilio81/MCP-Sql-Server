@@ -38,6 +38,12 @@ def test_post_server_duplicate_returns_409():
     assert response.status_code == 409
 
 
+def test_post_server_invalid_input_returns_400():
+    with patch("manager.server.config_manager.add_server", side_effect=ValueError("connection_string is required")):
+        response = client.post("/api/servers", json=SAMPLE_ENTRY)
+    assert response.status_code == 400
+
+
 def test_put_server_success():
     with patch("manager.server.config_manager.update_server") as mock_update:
         response = client.put("/api/servers/db-test", json=SAMPLE_ENTRY)
