@@ -121,8 +121,9 @@ def register_claude_code(name: str):
     if not claude_exe:
         return {"ok": False, "error": "Claude CLI non trovato. Installa Claude Code e verifica che 'claude' sia nel PATH."}
 
-    # Build: claude mcp add <name> --scope user python -m mcp_sqlserver.server --connection-string "..." [opts]
-    cmd = [claude_exe, "mcp", "add", name, "--scope", "user", "python",
+    # Build: claude mcp add <name> --scope user -- python -m mcp_sqlserver.server --connection-string "..." [opts]
+    # The "--" stops claude's own option parser so it doesn't interpret "-m" as its flag.
+    cmd = [claude_exe, "mcp", "add", name, "--scope", "user", "--", "python",
            "-m", "mcp_sqlserver.server",
            "--connection-string", entry["connection_string"]]
     for field, flag in (("max_rows", "--max-rows"), ("query_timeout", "--query-timeout"),
@@ -153,6 +154,12 @@ def register_claude_code(name: str):
 # ------------------------------------------------------------------ #
 #  Frontend                                                            #
 # ------------------------------------------------------------------ #
+
+@app.get("/favicon.ico")
+def favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
+
 
 @app.get("/")
 def serve_frontend():
