@@ -91,3 +91,4 @@ temp/
 *.tmp
 *.bak
 *.backup
+.superpowers/
