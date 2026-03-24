@@ -68,7 +68,7 @@ async def handle_table_statistics(pool: ConnectionPool, arguments: dict) -> list
             )
 
         full_query = " UNION ALL ".join(stat_parts)
-        cursor.timeout = config.QUERY_TIMEOUT
+        conn.timeout = config.QUERY_TIMEOUT
         cursor.execute(full_query)
         stats_rows = cursor.fetchall()
 

@@ -36,8 +36,8 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
         )
 
     with pool.get_connection() as conn:
+        conn.timeout = config.QUERY_TIMEOUT
         cursor = conn.cursor()
-        cursor.timeout = config.QUERY_TIMEOUT
         # Enforce read-only isolation — prevents dirty reads and any accidental writes
         cursor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
 
