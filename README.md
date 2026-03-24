@@ -53,6 +53,7 @@ python -m manager.server
 - **Add / Edit / Delete** SQL Server connections stored in `claude_desktop_config.json`
 - **Test** any connection string before saving — shows ✅ or ❌ with the error message
 - **Live status** — on page load, all configured servers are tested in parallel and shown as green/red dots
+- **Register on Claude Code** — one click on the **CC** button runs `claude mcp add` to make the server available in Claude Code too
 - **Preserves** all other entries in your Claude Desktop config untouched
 - **Auto-detects** the config file path on Windows, macOS, and Linux
 
@@ -67,6 +68,8 @@ Each configured connection appears as a card:
 ```
 
 The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout.
+
+Card actions: **⚡** test connection · **CC** register on Claude Code · **✏️** edit · **🗑** delete
 
 ---
 

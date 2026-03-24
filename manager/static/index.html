@@ -39,6 +39,8 @@
     .btn-sm.purple { border-color: #c4b5fd; color: #6c63ff; }
     .btn-sm.purple:hover { background: #ede9fe; }
     .btn-sm.red:hover { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+    .btn-sm.green { border-color: #bbf7d0; color: #16a34a; }
+    .btn-sm.green:hover { background: #f0fdf4; }
 
     /* Form panel */
     .form-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-top: 20px; display: none; }
@@ -154,6 +156,7 @@
         </div>
         <div class="card-actions">
           <button class="btn-sm purple" onclick="testCard(${i})">⚡</button>
+          <button class="btn-sm green" onclick="registerClaudeCode(${i})" title="Registra su Claude Code">CC</button>
           <button class="btn-sm" onclick="editCard(${i})">✏️</button>
           <button class="btn-sm red" onclick="deleteCard(${i})">🗑</button>
         </div>
@@ -205,6 +208,23 @@
     const dot = document.getElementById('dot-' + i);
     if (dot) { dot.className = 'dot'; dot.title = 'Verifica...'; }
     await checkStatus(i, servers[i].connection_string);
+  }
+
+  async function registerClaudeCode(i) {
+    if (!servers[i]) return;
+    const name = servers[i].name;
+    showBanner(`⏳ Registrazione "${name}" su Claude Code...`);
+    try {
+      const res = await fetch(`/api/servers/${encodeURIComponent(name)}/register-claude-code`, {method: 'POST'});
+      const data = await res.json();
+      if (data.ok) {
+        showSuccess(`✅ "${name}" registrato. Riavvia Claude Code per attivarlo.`);
+      } else {
+        showBanner(`❌ ${data.error}`);
+      }
+    } catch (e) {
+      showBanner('Errore: ' + e.message);
+    }
   }
 
   function editCard(i) {
@@ -313,11 +333,24 @@
     }
   }
 
-  function showBanner(msg) {
+  function showBanner(msg, autohide = true) {
     const el = document.getElementById('banner');
     el.textContent = msg;
+    el.style.background = '';
+    el.style.borderColor = '';
+    el.style.color = '';
     el.classList.add('visible');
-    setTimeout(() => el.classList.remove('visible'), 6000);
+    if (autohide) setTimeout(() => el.classList.remove('visible'), 6000);
+  }
+
+  function showSuccess(msg) {
+    const el = document.getElementById('banner');
+    el.textContent = msg;
+    el.style.background = '#f0fdf4';
+    el.style.borderColor = '#bbf7d0';
+    el.style.color = '#15803d';
+    el.classList.add('visible');
+    setTimeout(() => { el.classList.remove('visible'); el.style.background = el.style.borderColor = el.style.color = ''; }, 6000);
   }
 
   loadServers();

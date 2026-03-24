@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """FastAPI app — API routes + serve index.html."""
+import shutil
+import subprocess
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -96,6 +99,55 @@ def delete_server(name: str):
 @app.post("/api/test")
 def test_connection(req: TestRequest):
     return connection_tester.test_connection(req.connection_string)
+
+
+@app.post("/api/servers/{name}/register-claude-code")
+def register_claude_code(name: str):
+    # Find the entry
+    try:
+        servers = config_manager.list_servers()
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    entry = next((s for s in servers if s["name"] == name), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
+
+    # Locate claude CLI (on Windows it may be claude.cmd)
+    claude_exe = None
+    for candidate in (("claude.cmd", "claude") if sys.platform == "win32" else ("claude",)):
+        if shutil.which(candidate):
+            claude_exe = candidate
+            break
+    if not claude_exe:
+        return {"ok": False, "error": "Claude CLI non trovato. Installa Claude Code e verifica che 'claude' sia nel PATH."}
+
+    # Build: claude mcp add <name> --scope user python -m mcp_sqlserver.server --connection-string "..." [opts]
+    cmd = [claude_exe, "mcp", "add", name, "--scope", "user", "python",
+           "-m", "mcp_sqlserver.server",
+           "--connection-string", entry["connection_string"]]
+    for field, flag in (("max_rows", "--max-rows"), ("query_timeout", "--query-timeout"),
+                        ("pool_size", "--pool-size"), ("pool_timeout", "--pool-timeout"),
+                        ("allowed_schemas", "--allowed-schemas"),
+                        ("blacklist_tables", "--blacklist-tables"),
+                        ("log_level", "--log-level")):
+        val = entry.get(field)
+        if val is not None and str(val).strip() not in ("", "INFO"):
+            cmd.extend([flag, str(val)])
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=15,
+            shell=(sys.platform == "win32"),
+        )
+        if result.returncode == 0:
+            return {"ok": True, "output": result.stdout.strip() or f"'{name}' registrato su Claude Code."}
+        else:
+            err = (result.stderr or result.stdout).strip()
+            return {"ok": False, "error": err or "Comando fallito senza messaggio."}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Timeout: Claude CLI non risponde."}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 # ------------------------------------------------------------------ #
