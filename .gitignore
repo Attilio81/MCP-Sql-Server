@@ -92,3 +92,4 @@ temp/
 *.bak
 *.backup
 .superpowers/
+.worktrees/
