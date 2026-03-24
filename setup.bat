@@ -31,10 +31,10 @@ if /i "%CREATE_VENV%"=="s" (
     echo Salta creazione virtual environment
 )
 
-REM Install package
+REM Install package with manager dependencies
 echo.
-echo [3/5] Installazione package in modalita development...
-pip install -e .
+echo [3/5] Installazione package (incluso SQL MCP Manager)...
+pip install -e ".[manager]"
 if errorlevel 1 (
     echo [ERROR] Installazione fallita
     pause
@@ -48,7 +48,8 @@ if not exist .env (
     echo Copia .env.example a .env...
     copy .env.example .env
     echo.
-    echo IMPORTANTE: Edita il file .env con le tue credenziali SQL Server!
+    echo NOTA: Il file .env e opzionale - puoi usare il Manager per configurare
+    echo       le connessioni direttamente in claude_desktop_config.json
     echo.
     set /p EDIT_ENV="Vuoi aprire .env ora? (s/n): "
     if /i "%EDIT_ENV%"=="s" (
@@ -73,9 +74,17 @@ echo Setup completato!
 echo ========================================
 echo.
 echo Prossimi passi:
-echo 1. Configura il file .env con le tue credenziali
-echo 2. Esegui: python test_connection.py
-echo 3. Configura Claude Desktop con claude_desktop_config.example.json
-echo 4. Riavvia Claude Desktop
+echo 1. Avvia il Manager per configurare le connessioni:
+echo      python -m manager.server
+echo    Si apre automaticamente http://localhost:8090
+echo    Aggiungi i tuoi SQL Server e testa le connessioni dalla UI.
+echo.
+echo 2. Riavvia Claude Desktop dopo aver salvato le connessioni.
+echo.
+set /p LAUNCH_MANAGER="Vuoi avviare il SQL MCP Manager ora? (s/n): "
+if /i "%LAUNCH_MANAGER%"=="s" (
+    echo Avvio SQL MCP Manager su http://localhost:8090 ...
+    python -m manager.server
+)
 echo.
 pause
