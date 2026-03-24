@@ -37,13 +37,17 @@ def _parse_args():
         help="Comma-separated list of allowed schemas (empty = all schemas allowed)",
     )
     parser.add_argument("--log-level", help="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)")
+    parser.add_argument(
+        "--dictionary-file",
+        help="Path del file dizionario semantico (default: semantic_dictionary.md)",
+    )
     return parser.parse_args()
 
 
 def _load_config():
     """Load configuration from CLI args and environment variables. Called lazily."""
     global CONNECTION_STRING, MAX_ROWS, QUERY_TIMEOUT, POOL_SIZE, POOL_TIMEOUT
-    global LOG_LEVEL, BLACKLIST_TABLES, ALLOWED_SCHEMAS, logger
+    global LOG_LEVEL, BLACKLIST_TABLES, ALLOWED_SCHEMAS, DICTIONARY_FILE, logger
 
     _args = _parse_args()
 
@@ -68,6 +72,9 @@ def _load_config():
     _schemas_raw = _args.allowed_schemas if _args.allowed_schemas is not None else os.getenv("ALLOWED_SCHEMAS", "")
     ALLOWED_SCHEMAS = [s.strip().lower() for s in _schemas_raw.split(",") if s.strip()]
 
+    # Dictionary configuration
+    DICTIONARY_FILE = _args.dictionary_file or os.getenv("DICTIONARY_FILE", "semantic_dictionary.md")
+
     # Configure logging (after resolving LOG_LEVEL from CLI/env)
     logging.basicConfig(
         level=LOG_LEVEL,
@@ -85,6 +92,7 @@ POOL_TIMEOUT = 30
 LOG_LEVEL = "INFO"
 BLACKLIST_TABLES: list[str] = []
 ALLOWED_SCHEMAS: list[str] = []
+DICTIONARY_FILE: str = "semantic_dictionary.md"
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 4096  # characters
