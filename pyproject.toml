@@ -9,6 +9,12 @@ dependencies = [
     "python-dotenv>=1.0.0"
 ]
 
+[project.optional-dependencies]
+manager = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+]
+
 [project.scripts]
 mcp-sqlserver = "mcp_sqlserver.server:run"
 
