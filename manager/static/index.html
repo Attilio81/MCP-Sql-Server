@@ -42,6 +42,16 @@
     .btn-sm.green { border-color: #bbf7d0; color: #16a34a; }
     .btn-sm.green:hover { background: #f0fdf4; }
 
+    /* Dictionary modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.visible { display: flex; }
+    .modal-box { background: #fff; border-radius: 14px; padding: 28px; width: min(700px, 92vw); max-height: 88vh; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); }
+    .modal-title { font-size: 1rem; font-weight: 700; margin-bottom: 2px; }
+    .modal-hint { font-size: 0.75rem; color: #94a3b8; }
+    .modal-textarea { flex: 1; width: 100%; min-height: 360px; font-family: 'Courier New', monospace; font-size: 0.8rem; line-height: 1.5; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; resize: vertical; }
+    .modal-textarea:focus { outline: none; border-color: #6c63ff; box-shadow: 0 0 0 3px #6c63ff22; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; align-items: center; }
+
     /* Form panel */
     .form-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-top: 20px; display: none; }
     .form-panel.visible { display: block; }
@@ -108,12 +118,33 @@
         <label>Pool Timeout (s)</label>
         <input type="number" id="f-pool-timeout" placeholder="30">
       </div>
+      <div class="form-group form-full">
+        <label>File Dizionario <span style="font-weight:400;color:#94a3b8">(opzionale)</span></label>
+        <input type="text" id="f-dictionary-file" placeholder="semantic_dictionary.md">
+        <small style="color:#94a3b8;font-size:0.72rem;display:block;margin-top:3px">Path dove Claude salva la conoscenza semantica. Lascia vuoto per il default.</small>
+      </div>
     </div>
     <div class="form-actions">
       <span class="test-result" id="test-result"></span>
       <button class="btn-cancel" onclick="closeForm()">Annulla</button>
       <button class="btn-test" onclick="testForm()">⚡ Testa</button>
       <button class="btn-save" onclick="saveForm()">Salva</button>
+    </div>
+  </div>
+
+  <!-- Dictionary Modal -->
+  <div class="modal-overlay" id="dict-modal" onclick="if(event.target===this)closeDictionary()">
+    <div class="modal-box">
+      <div>
+        <div class="modal-title" id="dict-modal-title">Dizionario Semantico</div>
+        <div class="modal-hint">Aggiornato automaticamente da Claude. Puoi modificarlo manualmente o copiare sezioni da altri dizionari.</div>
+      </div>
+      <textarea class="modal-textarea" id="dict-textarea" placeholder="Il dizionario è vuoto. Claude lo popolerà automaticamente durante le conversazioni."></textarea>
+      <div class="modal-footer">
+        <span class="test-result" id="dict-save-result" style="margin-right:auto"></span>
+        <button class="btn-cancel" onclick="closeDictionary()">Chiudi</button>
+        <button class="btn-save" onclick="saveDictionary()">Salva Modifiche</button>
+      </div>
     </div>
   </div>
 </div>
@@ -157,6 +188,7 @@
         <div class="card-actions">
           <button class="btn-sm purple" onclick="testCard(${i})">⚡</button>
           <button class="btn-sm green" onclick="registerClaudeCode(${i})" title="Registra su Claude Code">CC</button>
+          <button class="btn-sm" onclick="openDictionary(${i})" title="Dizionario semantico">📖</button>
           <button class="btn-sm" onclick="editCard(${i})">✏️</button>
           <button class="btn-sm red" onclick="deleteCard(${i})">🗑</button>
         </div>
@@ -240,6 +272,7 @@
     document.getElementById('f-query-timeout').value = s.query_timeout || '';
     document.getElementById('f-pool-size').value = s.pool_size || '';
     document.getElementById('f-pool-timeout').value = s.pool_timeout || '';
+    document.getElementById('f-dictionary-file').value = s.dictionary_file || '';
     document.getElementById('test-result').textContent = '';
     document.getElementById('form-panel').classList.add('visible');
   }
@@ -264,7 +297,7 @@
     document.getElementById('form-title').textContent = 'Nuova connessione';
     document.getElementById('f-name').value = '';
     document.getElementById('f-name').disabled = false;
-    ['f-conn','f-max-rows','f-schemas','f-blacklist','f-query-timeout','f-pool-size','f-pool-timeout']
+    ['f-conn','f-max-rows','f-schemas','f-blacklist','f-query-timeout','f-pool-size','f-pool-timeout','f-dictionary-file']
       .forEach(id => document.getElementById(id).value = '');
     document.getElementById('test-result').textContent = '';
     document.getElementById('form-panel').classList.add('visible');
@@ -312,6 +345,7 @@
       allowed_schemas: document.getElementById('f-schemas').value.trim(),
       blacklist_tables: document.getElementById('f-blacklist').value.trim(),
       log_level: 'INFO',
+      dictionary_file: document.getElementById('f-dictionary-file').value.trim(),
     };
     if (!body.name || !body.connection_string) {
       alert('Nome e Connection String sono obbligatori.');
@@ -351,6 +385,53 @@
     el.style.color = '#15803d';
     el.classList.add('visible');
     setTimeout(() => { el.classList.remove('visible'); el.style.background = el.style.borderColor = el.style.color = ''; }, 6000);
+  }
+
+  let dictServerName = null;
+
+  async function openDictionary(i) {
+    if (!servers[i]) return;
+    dictServerName = servers[i].name;
+    document.getElementById('dict-modal-title').textContent = `Dizionario Semantico — ${esc(dictServerName)}`;
+    document.getElementById('dict-textarea').value = '';
+    document.getElementById('dict-save-result').textContent = '';
+    document.getElementById('dict-save-result').className = 'test-result';
+    document.getElementById('dict-modal').classList.add('visible');
+    try {
+      const res = await fetch(`/api/dictionary/${encodeURIComponent(dictServerName)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      document.getElementById('dict-textarea').value = data.content;
+    } catch (e) {
+      document.getElementById('dict-save-result').textContent = '❌ Errore caricamento: ' + e.message;
+      document.getElementById('dict-save-result').className = 'test-result fail';
+    }
+  }
+
+  function closeDictionary() {
+    document.getElementById('dict-modal').classList.remove('visible');
+    dictServerName = null;
+  }
+
+  async function saveDictionary() {
+    if (!dictServerName) return;
+    const content = document.getElementById('dict-textarea').value;
+    const resultEl = document.getElementById('dict-save-result');
+    resultEl.textContent = '⏳ Salvataggio...';
+    resultEl.className = 'test-result';
+    try {
+      const res = await fetch(`/api/dictionary/${encodeURIComponent(dictServerName)}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content}),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || 'Errore');
+      resultEl.textContent = '✅ Salvato';
+      resultEl.className = 'test-result ok';
+    } catch (e) {
+      resultEl.textContent = '❌ ' + e.message;
+      resultEl.className = 'test-result fail';
+    }
   }
 
   loadServers();
