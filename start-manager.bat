@@ -1,6 +1,9 @@
 @echo off
 REM Avvia il SQL MCP Manager - interfaccia web per gestire le connessioni SQL Server
 
+REM Spostati nella cartella del progetto (dove si trova questo bat)
+cd /d "%~dp0"
+
 echo ========================================
 echo SQL MCP Manager
 echo ========================================

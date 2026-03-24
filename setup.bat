@@ -1,6 +1,9 @@
 @echo off
 REM Setup script per MCP SQL Server su Windows
 
+REM Spostati nella cartella del progetto (dove si trova questo bat)
+cd /d "%~dp0"
+
 echo ========================================
 echo MCP SQL Server - Setup
 echo ========================================
