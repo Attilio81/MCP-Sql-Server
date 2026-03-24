@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL MCP Manager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; padding: 32px 24px; }
+    .wrap { max-width: 860px; margin: 0 auto; }
+
+    /* Header */
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .title { font-size: 1.5rem; font-weight: 700; }
+    .title span { color: #6c63ff; }
+    .btn-primary { background: #6c63ff; color: #fff; border: none; padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+    .btn-primary:hover { background: #5a52e0; }
+
+    /* Error banner */
+    .banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; display: none; }
+    .banner.visible { display: block; }
+
+    /* Server list */
+    .section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
+    .server-list { display: flex; flex-direction: column; gap: 10px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; background: #94a3b8; }
+    .dot.online { background: #22c55e; box-shadow: 0 0 0 3px #22c55e33; }
+    .dot.offline { background: #ef4444; box-shadow: 0 0 0 3px #ef444433; }
+    .card-info { flex: 1; min-width: 0; }
+    .card-name { font-weight: 700; font-size: 1rem; }
+    .card-meta { font-size: 0.82rem; color: #64748b; margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .tag { background: #f1f5f9; border-radius: 5px; padding: 2px 8px; font-size: 0.75rem; color: #475569; font-weight: 500; }
+    .tag.purple { background: #ede9fe; color: #6c63ff; }
+    .card-err { color: #ef4444; font-size: 0.8rem; }
+    .card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .btn-sm { border: 1px solid #e2e8f0; background: #fff; border-radius: 7px; padding: 6px 10px; font-size: 0.8rem; cursor: pointer; color: #475569; }
+    .btn-sm:hover { background: #f8fafc; }
+    .btn-sm.purple { border-color: #c4b5fd; color: #6c63ff; }
+    .btn-sm.purple:hover { background: #ede9fe; }
+    .btn-sm.red:hover { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+
+    /* Form panel */
+    .form-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-top: 20px; display: none; }
+    .form-panel.visible { display: block; }
+    .form-title { font-size: 1rem; font-weight: 700; margin-bottom: 18px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-full { grid-column: 1 / -1; }
+    .form-group label { display: block; font-size: 0.75rem; font-weight: 600; color: #64748b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .form-group input { width: 100%; padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.88rem; }
+    .form-group input:focus { outline: none; border-color: #6c63ff; box-shadow: 0 0 0 3px #6c63ff22; }
+    .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; align-items: center; }
+    .btn-cancel { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; padding: 9px 18px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+    .btn-test { background: #ede9fe; color: #6c63ff; border: 1px solid #c4b5fd; padding: 9px 14px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+    .btn-save { background: #6c63ff; color: #fff; border: none; padding: 9px 20px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+    .test-result { font-size: 0.82rem; margin-right: auto; }
+    .test-result.ok { color: #16a34a; }
+    .test-result.fail { color: #ef4444; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="title">SQL MCP <span>Manager</span></div>
+    <button class="btn-primary" onclick="openForm()">＋ Nuova Connessione</button>
+  </div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="section-label" id="list-label">Caricamento...</div>
+  <div class="server-list" id="server-list"></div>
+
+  <div class="form-panel" id="form-panel">
+    <div class="form-title" id="form-title">Nuova connessione</div>
+    <input type="hidden" id="edit-name">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Nome MCP Server *</label>
+        <input type="text" id="f-name" placeholder="es. db-vendite">
+      </div>
+      <div class="form-group">
+        <label>Max Righe</label>
+        <input type="number" id="f-max-rows" placeholder="100">
+      </div>
+      <div class="form-group form-full">
+        <label>Connection String *</label>
+        <input type="text" id="f-conn" placeholder="Driver={ODBC Driver 17 for SQL Server};Server=...;Database=...;Trusted_Connection=yes">
+      </div>
+      <div class="form-group">
+        <label>Schema Consentiti</label>
+        <input type="text" id="f-schemas" placeholder="dbo, sales">
+      </div>
+      <div class="form-group">
+        <label>Tabelle Blacklist</label>
+        <input type="text" id="f-blacklist" placeholder="sys_*, *_audit">
+      </div>
+      <div class="form-group">
+        <label>Query Timeout (s)</label>
+        <input type="number" id="f-query-timeout" placeholder="30">
+      </div>
+      <div class="form-group">
+        <label>Pool Size</label>
+        <input type="number" id="f-pool-size" placeholder="5">
+      </div>
+      <div class="form-group">
+        <label>Pool Timeout (s)</label>
+        <input type="number" id="f-pool-timeout" placeholder="30">
+      </div>
+    </div>
+    <div class="form-actions">
+      <span class="test-result" id="test-result"></span>
+      <button class="btn-cancel" onclick="closeForm()">Annulla</button>
+      <button class="btn-test" onclick="testForm()">⚡ Testa</button>
+      <button class="btn-save" onclick="saveForm()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let servers = [];
+
+  async function loadServers() {
+    try {
+      const res = await fetch('/api/servers');
+      if (!res.ok) throw new Error(await res.text());
+      servers = await res.json();
+      renderList();
+      checkAllStatus();
+    } catch (e) {
+      showBanner('Errore caricamento: ' + e.message);
+    }
+  }
+
+  function renderList() {
+    const el = document.getElementById('server-list');
+    const label = document.getElementById('list-label');
+    label.textContent = `Connessioni configurate — ${servers.length}`;
+    if (servers.length === 0) {
+      el.innerHTML = '<p style="color:#94a3b8;padding:16px 0">Nessuna connessione configurata.</p>';
+      return;
+    }
+    el.innerHTML = servers.map((s, i) => `
+      <div class="card" id="card-${i}">
+        <div class="dot" id="dot-${i}" title="Verifica in corso..."></div>
+        <div class="card-info">
+          <div class="card-name">${esc(s.name)}</div>
+          <div class="card-meta">
+            <span>${connLabel(s.connection_string)}</span>
+            ${s.allowed_schemas ? `<span class="tag purple">schema: ${esc(s.allowed_schemas)}</span>` : ''}
+            ${s.max_rows ? `<span class="tag">max ${s.max_rows} righe</span>` : ''}
+            ${s.query_timeout ? `<span class="tag">timeout ${s.query_timeout}s</span>` : ''}
+            <span id="err-${i}"></span>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn-sm purple" onclick="testCard(${i})">⚡</button>
+          <button class="btn-sm" onclick="editCard(${i})">✏️</button>
+          <button class="btn-sm red" onclick="deleteCard(${i})">🗑</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function connLabel(cs) {
+    const srv = cs.match(/Server=([^;]+)/i)?.[1] || '';
+    const db  = cs.match(/Database=([^;]+)/i)?.[1] || '';
+    return srv && db ? `🖥 ${esc(srv)} › ${esc(db)}` : esc(cs.substring(0, 40)) + '…';
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  async function checkAllStatus() {
+    await Promise.all(servers.map((s, i) => checkStatus(i, s.connection_string)));
+  }
+
+  async function checkStatus(i, cs) {
+    try {
+      const res = await fetch('/api/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({connection_string: cs})
+      });
+      const data = await res.json();
+      const dot = document.getElementById('dot-' + i);
+      const err = document.getElementById('err-' + i);
+      if (!dot) return;
+      if (data.ok) {
+        dot.className = 'dot online';
+        dot.title = 'Connesso';
+      } else {
+        dot.className = 'dot offline';
+        dot.title = data.error || 'Errore';
+        if (err) err.className = 'card-err';
+        if (err) err.textContent = '✗ ' + (data.error || 'Connessione fallita');
+      }
+    } catch (_) {}
+  }
+
+  async function testCard(i) {
+    const dot = document.getElementById('dot-' + i);
+    if (dot) { dot.className = 'dot'; dot.title = 'Verifica...'; }
+    await checkStatus(i, servers[i].connection_string);
+  }
+
+  function editCard(i) {
+    const s = servers[i];
+    document.getElementById('edit-name').value = s.name;
+    document.getElementById('form-title').textContent = `Modifica: ${s.name}`;
+    document.getElementById('f-name').value = s.name;
+    document.getElementById('f-name').disabled = true;
+    document.getElementById('f-conn').value = s.connection_string || '';
+    document.getElementById('f-max-rows').value = s.max_rows || '';
+    document.getElementById('f-schemas').value = s.allowed_schemas || '';
+    document.getElementById('f-blacklist').value = s.blacklist_tables || '';
+    document.getElementById('f-query-timeout').value = s.query_timeout || '';
+    document.getElementById('f-pool-size').value = s.pool_size || '';
+    document.getElementById('f-pool-timeout').value = s.pool_timeout || '';
+    document.getElementById('test-result').textContent = '';
+    document.getElementById('form-panel').classList.add('visible');
+  }
+
+  async function deleteCard(i) {
+    if (!confirm(`Eliminare la connessione "${servers[i].name}"?`)) return;
+    try {
+      const res = await fetch(`/api/servers/${encodeURIComponent(servers[i].name)}`, {method: 'DELETE'});
+      if (!res.ok) throw new Error((await res.json()).detail);
+      await loadServers();
+    } catch (e) {
+      showBanner('Errore eliminazione: ' + e.message);
+    }
+  }
+
+  function openForm() {
+    document.getElementById('edit-name').value = '';
+    document.getElementById('form-title').textContent = 'Nuova connessione';
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-name').disabled = false;
+    ['f-conn','f-max-rows','f-schemas','f-blacklist','f-query-timeout','f-pool-size','f-pool-timeout']
+      .forEach(id => document.getElementById(id).value = '');
+    document.getElementById('test-result').textContent = '';
+    document.getElementById('form-panel').classList.add('visible');
+  }
+
+  function closeForm() {
+    document.getElementById('form-panel').classList.remove('visible');
+  }
+
+  async function testForm() {
+    const cs = document.getElementById('f-conn').value.trim();
+    if (!cs) { alert('Inserisci una connection string.'); return; }
+    const el = document.getElementById('test-result');
+    el.textContent = '⏳ Test in corso...';
+    el.className = 'test-result';
+    try {
+      const res = await fetch('/api/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({connection_string: cs})
+      });
+      const data = await res.json();
+      if (data.ok) {
+        el.textContent = '✅ Connessione OK';
+        el.className = 'test-result ok';
+      } else {
+        el.textContent = '❌ ' + (data.error || 'Errore');
+        el.className = 'test-result fail';
+      }
+    } catch (e) {
+      el.textContent = '❌ ' + e.message;
+      el.className = 'test-result fail';
+    }
+  }
+
+  async function saveForm() {
+    const editName = document.getElementById('edit-name').value;
+    const body = {
+      name: document.getElementById('f-name').value.trim() || editName,
+      connection_string: document.getElementById('f-conn').value.trim(),
+      max_rows: parseInt(document.getElementById('f-max-rows').value) || 100,
+      query_timeout: parseInt(document.getElementById('f-query-timeout').value) || 30,
+      pool_size: parseInt(document.getElementById('f-pool-size').value) || 5,
+      pool_timeout: parseInt(document.getElementById('f-pool-timeout').value) || 30,
+      allowed_schemas: document.getElementById('f-schemas').value.trim(),
+      blacklist_tables: document.getElementById('f-blacklist').value.trim(),
+      log_level: 'INFO',
+    };
+    if (!body.name || !body.connection_string) {
+      alert('Nome e Connection String sono obbligatori.');
+      return;
+    }
+    try {
+      const method = editName ? 'PUT' : 'POST';
+      const url = editName ? `/api/servers/${encodeURIComponent(editName)}` : '/api/servers';
+      const res = await fetch(url, {
+        method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail);
+      closeForm();
+      await loadServers();
+    } catch (e) {
+      showBanner('Errore salvataggio: ' + e.message);
+    }
+  }
+
+  function showBanner(msg) {
+    const el = document.getElementById('banner');
+    el.textContent = msg;
+    el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 6000);
+  }
+
+  loadServers();
+</script>
+</body>
+</html>
