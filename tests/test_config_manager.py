@@ -67,6 +67,12 @@ def test_add_server_raises_on_duplicate(tmp_path):
         add_server(SAMPLE_ENTRY, path=cfg)
 
 
+def test_add_server_raises_on_missing_connection_string(tmp_path):
+    cfg = tmp_path / "config.json"
+    with pytest.raises(ValueError, match="connection_string"):
+        add_server({"name": "db-test", "connection_string": ""}, path=cfg)
+
+
 def test_add_server_preserves_other_entries(tmp_path):
     cfg = tmp_path / "config.json"
     cfg.write_text(json.dumps({
@@ -114,7 +120,7 @@ def test_list_servers_excludes_non_sqlserver_entries(tmp_path):
 
 
 def test_write_is_atomic(tmp_path, monkeypatch):
-    """Verify original file is untouched if os.replace raises."""
+    """Verify original file is untouched and .tmp is cleaned up if os.replace raises."""
     cfg = tmp_path / "config.json"
     add_server(SAMPLE_ENTRY, path=cfg)
     original = cfg.read_text()
@@ -127,3 +133,5 @@ def test_write_is_atomic(tmp_path, monkeypatch):
         add_server({**SAMPLE_ENTRY, "name": "db-test2"}, path=cfg)
 
     assert cfg.read_text() == original
+    # .tmp file should be cleaned up
+    assert not cfg.with_suffix(".tmp").exists()

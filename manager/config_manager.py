@@ -31,7 +31,11 @@ def _write_config(path: Path, config: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _serialize_entry(entry: dict) -> dict:
@@ -88,7 +92,9 @@ def list_servers(path: Optional[Path] = None) -> list:
 
 
 def add_server(entry: dict, path: Optional[Path] = None) -> None:
-    """Add a new server entry. Raises ValueError if name already exists."""
+    """Add a new server entry. Raises ValueError if name already exists or connection_string missing."""
+    if not entry.get("connection_string", "").strip():
+        raise ValueError("connection_string is required")
     if path is None:
         path = detect_config_path()
     config = read_config(path)
@@ -100,7 +106,9 @@ def add_server(entry: dict, path: Optional[Path] = None) -> None:
 
 
 def update_server(name: str, entry: dict, path: Optional[Path] = None) -> None:
-    """Update an existing server entry. Raises KeyError if not found."""
+    """Update an existing server entry. Raises KeyError if not found, ValueError if connection_string missing."""
+    if not entry.get("connection_string", "").strip():
+        raise ValueError("connection_string is required")
     if path is None:
         path = detect_config_path()
     config = read_config(path)

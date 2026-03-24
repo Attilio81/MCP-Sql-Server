@@ -1,0 +1,156 @@
+<style>
+  .manager-wrap { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; }
+  .mgr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .mgr-title { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; }
+  .mgr-title span { color: #6c63ff; }
+  .btn-add { background: #6c63ff; color: #fff; border: none; padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .btn-add:hover { background: #5a52e0; }
+
+  .server-grid { display: flex; flex-direction: column; gap: 12px; }
+  .server-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 22px; display: flex; align-items: center; gap: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  .server-card:hover { border-color: #6c63ff44; box-shadow: 0 2px 10px rgba(108,99,255,0.1); }
+
+  .status-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.online { background: #22c55e; box-shadow: 0 0 0 3px #22c55e33; }
+  .status-dot.offline { background: #ef4444; box-shadow: 0 0 0 3px #ef444433; }
+  .status-dot.unknown { background: #94a3b8; box-shadow: 0 0 0 3px #94a3b833; }
+
+  .server-info { flex: 1; min-width: 0; }
+  .server-name { font-size: 1rem; font-weight: 700; color: #1e293b; margin-bottom: 3px; }
+  .server-meta { font-size: 0.82rem; color: #64748b; display: flex; gap: 14px; flex-wrap: wrap; }
+  .server-meta span { display: flex; align-items: center; gap: 4px; }
+  .tag { background: #f1f5f9; border-radius: 5px; padding: 2px 8px; font-size: 0.75rem; color: #475569; font-weight: 500; }
+  .tag.schema { background: #ede9fe; color: #6c63ff; }
+  .tag.rows { background: #ecfdf5; color: #16a34a; }
+  .tag.timeout { background: #fff7ed; color: #c2410c; }
+
+  .card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn-icon { border: 1px solid #e2e8f0; background: #fff; border-radius: 7px; padding: 6px 11px; font-size: 0.8rem; cursor: pointer; color: #475569; font-weight: 500; }
+  .btn-icon:hover { background: #f8fafc; }
+  .btn-icon.test { border-color: #6c63ff44; color: #6c63ff; }
+  .btn-icon.test:hover { background: #ede9fe; }
+  .btn-icon.danger:hover { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+
+  /* Form panel */
+  .form-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-top: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  .form-panel-title { font-size: 1rem; font-weight: 700; color: #1e293b; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-full { grid-column: 1 / -1; }
+  .form-group label { display: block; font-size: 0.78rem; font-weight: 600; color: #64748b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-group input { width: 100%; padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.88rem; color: #1e293b; box-sizing: border-box; }
+  .form-group input:focus { outline: none; border-color: #6c63ff; box-shadow: 0 0 0 3px #6c63ff22; }
+  .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+  .btn-save { background: #6c63ff; color: #fff; border: none; padding: 9px 20px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+  .btn-cancel { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; padding: 9px 20px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+  .btn-test-full { background: #ede9fe; color: #6c63ff; border: 1px solid #c4b5fd; padding: 9px 16px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+
+  .section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
+</style>
+
+<div class="manager-wrap">
+  <div class="mgr-header">
+    <div class="mgr-title">SQL MCP <span>Manager</span></div>
+    <button class="btn-add">＋ Nuova Connessione</button>
+  </div>
+
+  <div class="section-label">Connessioni configurate — 3</div>
+
+  <div class="server-grid">
+    <!-- Card 1: online -->
+    <div class="server-card">
+      <div class="status-dot online" title="Connesso"></div>
+      <div class="server-info">
+        <div class="server-name">db-vendite</div>
+        <div class="server-meta">
+          <span>🖥 srv1 › Vendite</span>
+          <span class="tag schema">schema: dbo</span>
+          <span class="tag rows">max 100 righe</span>
+          <span class="tag timeout">timeout 30s</span>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn-icon test">⚡ Test</button>
+        <button class="btn-icon">✏️ Modifica</button>
+        <button class="btn-icon danger">🗑</button>
+      </div>
+    </div>
+
+    <!-- Card 2: online -->
+    <div class="server-card">
+      <div class="status-dot online" title="Connesso"></div>
+      <div class="server-info">
+        <div class="server-name">db-magazzino</div>
+        <div class="server-meta">
+          <span>🖥 srv2 › Magazzino</span>
+          <span class="tag schema">schema: dbo, wms</span>
+          <span class="tag rows">max 200 righe</span>
+          <span class="tag timeout">timeout 60s</span>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn-icon test">⚡ Test</button>
+        <button class="btn-icon">✏️ Modifica</button>
+        <button class="btn-icon danger">🗑</button>
+      </div>
+    </div>
+
+    <!-- Card 3: offline -->
+    <div class="server-card">
+      <div class="status-dot offline" title="Non raggiungibile"></div>
+      <div class="server-info">
+        <div class="server-name">db-contabilita</div>
+        <div class="server-meta">
+          <span>🖥 srv1 › Contabilita</span>
+          <span class="tag schema">schema: dbo</span>
+          <span class="tag rows">max 100 righe</span>
+          <span style="color:#ef4444; font-size:0.8rem;">✗ Connessione fallita</span>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn-icon test">⚡ Test</button>
+        <button class="btn-icon">✏️ Modifica</button>
+        <button class="btn-icon danger">🗑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Form add/edit (shown inline below list) -->
+  <div class="form-panel">
+    <div class="form-panel-title">✚ Nuova connessione</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Nome MCP Server</label>
+        <input type="text" placeholder="es. db-vendite">
+      </div>
+      <div class="form-group">
+        <label>Max Righe</label>
+        <input type="number" placeholder="100">
+      </div>
+      <div class="form-group form-full">
+        <label>Connection String</label>
+        <input type="text" placeholder="Driver={ODBC Driver 17 for SQL Server};Server=...;Database=...;Trusted_Connection=yes">
+      </div>
+      <div class="form-group">
+        <label>Schema Consentiti</label>
+        <input type="text" placeholder="dbo, sales">
+      </div>
+      <div class="form-group">
+        <label>Tabelle Blacklist</label>
+        <input type="text" placeholder="sys_*, *_audit">
+      </div>
+      <div class="form-group">
+        <label>Query Timeout (s)</label>
+        <input type="number" placeholder="30">
+      </div>
+      <div class="form-group">
+        <label>Pool Size</label>
+        <input type="number" placeholder="5">
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-cancel">Annulla</button>
+      <button class="btn-test-full">⚡ Testa Connessione</button>
+      <button class="btn-save">Salva</button>
+    </div>
+  </div>
+</div>

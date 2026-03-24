@@ -12,7 +12,13 @@
       "Bash(powershell -Command \"[Environment]::GetFolderPath(''ApplicationData'') + ''\\Claude\\claude_desktop_config.json''\")",
       "Bash(git init:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(bash \"/c/Users/attilio.pregnolato.EGMSISTEMI/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.5/skills/brainstorming/scripts/start-server.sh\" --project-dir \"/c/Users/attilio.pregnolato.EGMSISTEMI/Documents/GitHub/MCP-Sql-Server\")",
+      "Bash(cat \"/c/Users/attilio.pregnolato.EGMSISTEMI/Documents/GitHub/MCP-Sql-Server/.superpowers/brainstorm/\"*\"/.server-info\")",
+      "Bash(pip show:*)",
+      "Bash(git commit:*)",
+      "Bash(python -c \":*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []
