@@ -28,10 +28,6 @@ A secure and production-ready MCP (Model Context Protocol) server for SQL Server
 - **MCP Resources**:
   - `db://schema/overview`: Full database schema overview (all tables, columns, types, PKs)
   - `db://schema/tables/{table_name}`: Detailed schema for a single table
-- **MCP Prompts**:
-  - `analyze-table`: Guided analysis of a table's structure, types and relationships
-  - `query-builder`: Build a SELECT query from a natural language description
-  - `data-dictionary`: Generate a complete data dictionary for one or more tables
 
 ## SQL MCP Manager
 
@@ -488,49 +484,6 @@ Detailed schema for a single table via URI template.
 
 **Example URI:** `db://schema/tables/dbo.Orders`
 
----
-
-### Available Prompts
-
-MCP Prompts are pre-built templates that guide the AI through structured workflows.
-
-#### `/analyze-table`
-
-Analyzes a table's structure, types, relationships and suggests improvements.
-
-**Arguments:**
-- `table_name` (required): Table name (format: `schema.table` or `table`)
-
-**Example:**
-```
-/analyze-table table_name=dbo.Orders
-```
-
-#### `/query-builder`
-
-Helps build a SELECT query from a natural language description.
-
-**Arguments:**
-- `description` (required): What you're looking for in plain language
-- `tables` (optional): Tables to use, comma-separated
-
-**Example:**
-```
-/query-builder description="monthly order totals for 2026" tables="Orders,Customers"
-```
-
-#### `/data-dictionary`
-
-Generates a complete data dictionary for one or more tables.
-
-**Arguments:**
-- `tables` (optional): Tables to document, comma-separated (empty = all accessible tables)
-
-**Example:**
-```
-/data-dictionary tables="Orders,Customers,Products"
-```
-
 ## Security
 
 ### Connection String Security
@@ -700,7 +653,6 @@ mcp-sqlserver/
 │   ├── pool.py            # ConnectionPool with auto-reconnection
 │   ├── helpers.py         # Output formatting (Markdown tables)
 │   ├── resources.py       # MCP Resources (schema overview, table schema)
-│   ├── prompts.py         # MCP Prompts (analyze-table, query-builder, data-dictionary)
 │   └── tools/
 │       ├── __init__.py    # Re-exports all tool handlers
 │       ├── list_tables.py

@@ -18,7 +18,12 @@
       "Bash(pip show:*)",
       "Bash(git commit:*)",
       "Bash(python -c \":*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebSearch",
+      "Bash(pytest:*)",
+      "Bash(PYTHONPATH=/c/Users/attilio.pregnolato.EGMSISTEMI/Documents/GitHub/MCP-Sql-Server pytest tests/test_connection_tester.py -v)",
+      "Bash(PYTHONPATH=/c/Users/attilio.pregnolato.EGMSISTEMI/Documents/GitHub/MCP-Sql-Server pytest tests/ -v)",
+      "Bash(ls \"C:\\\\Users\\\\attilio.pregnolato.EGMSISTEMI\\\\Documents\\\\GitHub\\\\MCP-Sql-Server\"/*.bat)"
     ],
     "deny": [],
     "ask": []

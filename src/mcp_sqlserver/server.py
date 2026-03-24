@@ -18,7 +18,6 @@ from mcp_sqlserver.pool import ConnectionPool
 from mcp_sqlserver.security import SecurityValidator
 from mcp_sqlserver.helpers import format_table_data
 from mcp_sqlserver.resources import register_resources
-from mcp_sqlserver.prompts import register_prompts
 from mcp_sqlserver.tools import (
     handle_list_tables,
     handle_describe_table,
@@ -52,7 +51,6 @@ def get_pool() -> ConnectionPool:
 # ------------------------------------------------------------------ #
 
 register_resources(app, get_pool)
-register_prompts(app)
 
 
 # ------------------------------------------------------------------ #
