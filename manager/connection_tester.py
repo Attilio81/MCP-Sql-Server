@@ -11,8 +11,10 @@ def test_connection(connection_string: str) -> dict:
     """
     try:
         conn = pyodbc.connect(connection_string, timeout=5)
-        conn.execute("SELECT 1").fetchone()
-        conn.close()
+        try:
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
         return {"ok": True, "error": None}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
