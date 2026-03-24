@@ -11,6 +11,7 @@ from manager.config_manager import (
     delete_server,
     _parse_entry,
     _serialize_entry,
+    get_dictionary_path,   # ← add this
 )
 
 SAMPLE_ENTRY = {
@@ -142,3 +143,75 @@ def test_write_is_atomic(tmp_path, monkeypatch):
     assert cfg.read_text() == original
     # .tmp file should be cleaned up
     assert not cfg.with_suffix(".tmp").exists()
+
+
+# ── dictionary_file ────────────────────────────────────────────────────────
+
+def test_serialize_entry_includes_dictionary_file():
+    entry = {
+        "name": "db-test",
+        "connection_string": "Driver=...;Server=s;Database=d;",
+        "dictionary_file": "/tmp/my_dict.md",
+    }
+    result = _serialize_entry(entry)
+    assert "--dictionary-file" in result["args"]
+    idx = result["args"].index("--dictionary-file")
+    assert result["args"][idx + 1] == "/tmp/my_dict.md"
+
+
+def test_serialize_entry_omits_empty_dictionary_file():
+    entry = {
+        "name": "db-test",
+        "connection_string": "Driver=...;Server=s;Database=d;",
+        "dictionary_file": "",
+    }
+    result = _serialize_entry(entry)
+    assert "--dictionary-file" not in result["args"]
+
+
+def test_parse_entry_reads_dictionary_file():
+    args = ["-m", "mcp_sqlserver.server", "--connection-string", "cs", "--dictionary-file", "/tmp/d.md"]
+    result = _parse_entry("srv", args)
+    assert result["dictionary_file"] == "/tmp/d.md"
+
+
+def test_get_dictionary_path_default(tmp_path):
+    """Returns default path when dictionary_file not set."""
+    config_data = {
+        "mcpServers": {
+            "db-test": {
+                "command": "python",
+                "args": ["-m", "mcp_sqlserver.server", "--connection-string", "cs"],
+            }
+        }
+    }
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps(config_data))
+    path = get_dictionary_path("db-test", config_file)
+    assert path.name == "semantic_dictionary.md"
+
+
+def test_get_dictionary_path_absolute(tmp_path):
+    """Returns absolute path as-is."""
+    abs_path = str(tmp_path / "my_dict.md")
+    config_data = {
+        "mcpServers": {
+            "db-test": {
+                "command": "python",
+                "args": ["-m", "mcp_sqlserver.server", "--connection-string", "cs",
+                         "--dictionary-file", abs_path],
+            }
+        }
+    }
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps(config_data))
+    result = get_dictionary_path("db-test", config_file)
+    assert result == Path(abs_path)
+
+
+def test_get_dictionary_path_unknown_server(tmp_path):
+    config_data = {"mcpServers": {}}
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps(config_data))
+    with pytest.raises(KeyError):
+        get_dictionary_path("nonexistent", config_file)

@@ -54,6 +54,7 @@ def _serialize_entry(entry: dict) -> dict:
         "allowed_schemas": "--allowed-schemas",
         "blacklist_tables": "--blacklist-tables",
         "log_level": "--log-level",
+        "dictionary_file": "--dictionary-file",
     }
     for field, flag in field_to_flag.items():
         val = entry.get(field)
@@ -131,3 +132,22 @@ def delete_server(name: str, path: Optional[Path] = None) -> None:
         raise KeyError(f"Server '{name}' not found")
     del config["mcpServers"][name]
     _write_config(path, config)
+
+
+def get_dictionary_path(server_name: str, config_path: Optional[Path] = None) -> Path:
+    """Return the resolved Path of the dictionary file for the given server.
+
+    Relative paths are resolved relative to the project root (parent of manager/).
+    Absolute paths are returned as-is.
+    Raises KeyError if the server is not found.
+    """
+    servers = list_servers(config_path)
+    entry = next((s for s in servers if s["name"] == server_name), None)
+    if entry is None:
+        raise KeyError(f"Server '{server_name}' not found")
+    raw = entry.get("dictionary_file") or "semantic_dictionary.md"
+    p = Path(raw)
+    if not p.is_absolute():
+        project_root = Path(__file__).parent.parent
+        p = project_root / p
+    return p
