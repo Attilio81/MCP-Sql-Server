@@ -33,6 +33,43 @@ A secure and production-ready MCP (Model Context Protocol) server for SQL Server
   - `query-builder`: Build a SELECT query from a natural language description
   - `data-dictionary`: Generate a complete data dictionary for one or more tables
 
+## SQL MCP Manager
+
+A built-in web UI for managing SQL Server MCP connections — add, edit, delete, and test all your configured databases from a single page, without editing JSON manually.
+
+### Install & Run
+
+```bash
+# Install manager dependencies (FastAPI + uvicorn)
+pip install -e ".[manager]"
+
+# Start the manager — opens browser automatically
+python -m manager.server
+# → http://localhost:8090
+```
+
+### What It Does
+
+- **Add / Edit / Delete** SQL Server connections stored in `claude_desktop_config.json`
+- **Test** any connection string before saving — shows ✅ or ❌ with the error message
+- **Live status** — on page load, all configured servers are tested in parallel and shown as green/red dots
+- **Preserves** all other entries in your Claude Desktop config untouched
+- **Auto-detects** the config file path on Windows, macOS, and Linux
+
+### Interface
+
+Each configured connection appears as a card:
+
+```
+● db-vendite         🖥 srv1 › Vendite    schema: dbo    max 100 righe    timeout 30s    [⚡] [✏️] [🗑]
+● db-magazzino       🖥 srv2 › Magazzino  schema: dbo,wms max 200 righe   timeout 60s    [⚡] [✏️] [🗑]
+✗ db-contabilita     🖥 srv1 › Contabilita                                ✗ Connessione fallita  [⚡] [✏️] [🗑]
+```
+
+The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout.
+
+---
+
 ## Quick Start
 
 ### Prerequisites
@@ -660,8 +697,18 @@ mcp-sqlserver/
 │       ├── search_columns.py
 │       ├── statistics.py
 │       └── views.py
+├── manager/               # SQL MCP Manager — local web UI
+│   ├── __init__.py
+│   ├── server.py          # FastAPI app: API routes + serve index.html
+│   ├── config_manager.py  # Read/write claude_desktop_config.json (atomic)
+│   ├── connection_tester.py  # Test a connection string via pyodbc
+│   └── static/
+│       └── index.html     # Single-page app (vanilla HTML/CSS/JS)
 ├── tests/
-│   └── test_security_validator.py  # Unit tests for SecurityValidator & helpers
+│   ├── test_security_validator.py   # Unit tests for SecurityValidator & helpers
+│   ├── test_config_manager.py       # Unit tests for config_manager
+│   ├── test_connection_tester.py    # Unit tests for connection_tester
+│   └── test_api.py                  # API tests via FastAPI TestClient
 ├── .env.example           # Environment template
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
@@ -676,17 +723,17 @@ mcp-sqlserver/
 
 ```bash
 # Install dev dependencies
-pip install pytest pytest-asyncio
+pip install -e ".[dev,manager]"
 
-# Run unit tests (no database required)
+# Run all unit tests (no database required)
 pytest tests/ -v
 ```
 
 The unit test suite covers:
-- Table access validation (blacklist, schema whitelist, bracket quoting)
-- Query validation (injection patterns, dangerous keywords, null bytes, Unicode tricks)
-- Markdown output formatting (pipe escaping, truncation, NULL values)
-- Internal helpers (`_normalize`, `_strip_brackets`)
+- `test_security_validator.py` — table access validation, query injection patterns, SQL helpers
+- `test_config_manager.py` — config read/write/parse, atomic writes, multi-platform paths
+- `test_connection_tester.py` — pyodbc connection test (mocked)
+- `test_api.py` — all FastAPI endpoints via TestClient (mocked config_manager)
 
 ### Code Quality
 
