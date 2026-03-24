@@ -194,10 +194,14 @@
         if (err) err.className = 'card-err';
         if (err) err.textContent = '✗ ' + (data.error || 'Connessione fallita');
       }
-    } catch (_) {}
+    } catch (_) {
+      const dot = document.getElementById('dot-' + i);
+      if (dot) { dot.className = 'dot offline'; dot.title = 'Errore di rete'; }
+    }
   }
 
   async function testCard(i) {
+    if (!servers[i]) return;
     const dot = document.getElementById('dot-' + i);
     if (dot) { dot.className = 'dot'; dot.title = 'Verifica...'; }
     await checkStatus(i, servers[i].connection_string);
@@ -224,7 +228,11 @@
     if (!confirm(`Eliminare la connessione "${servers[i].name}"?`)) return;
     try {
       const res = await fetch(`/api/servers/${encodeURIComponent(servers[i].name)}`, {method: 'DELETE'});
-      if (!res.ok) throw new Error((await res.json()).detail);
+      if (!res.ok) {
+        let detail = 'Errore server';
+        try { detail = (await res.json()).detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
       await loadServers();
     } catch (e) {
       showBanner('Errore eliminazione: ' + e.message);
