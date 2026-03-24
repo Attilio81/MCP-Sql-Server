@@ -50,16 +50,22 @@ def add_server(entry: ServerEntry):
     try:
         config_manager.add_server(entry.model_dump())
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        if "already exists" in str(exc):
+            raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
 
 
 @app.put("/api/servers/{name}")
 def update_server(name: str, entry: ServerEntry):
+    if entry.name != name:
+        raise HTTPException(status_code=400, detail="Name in body must match URL path")
     try:
         config_manager.update_server(name, entry.model_dump())
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
 
 

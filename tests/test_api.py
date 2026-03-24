@@ -29,7 +29,7 @@ def test_post_server_success():
     with patch("manager.server.config_manager.add_server") as mock_add:
         response = client.post("/api/servers", json=SAMPLE_ENTRY)
     assert response.status_code == 201
-    mock_add.assert_called_once()
+    mock_add.assert_called_once_with(SAMPLE_ENTRY)
 
 
 def test_post_server_duplicate_returns_409():
@@ -42,7 +42,7 @@ def test_put_server_success():
     with patch("manager.server.config_manager.update_server") as mock_update:
         response = client.put("/api/servers/db-test", json=SAMPLE_ENTRY)
     assert response.status_code == 200
-    mock_update.assert_called_once()
+    mock_update.assert_called_once_with("db-test", SAMPLE_ENTRY)
 
 
 def test_put_server_not_found_returns_404():
@@ -78,3 +78,15 @@ def test_post_test_failure():
         response = client.post("/api/test", json={"connection_string": "..."})
     assert response.status_code == 200
     assert response.json()["ok"] is False
+
+
+def test_put_server_name_mismatch_returns_400():
+    response = client.put("/api/servers/different-name", json=SAMPLE_ENTRY)
+    assert response.status_code == 400
+
+
+def test_put_server_blank_connection_string_returns_400():
+    entry = {**SAMPLE_ENTRY, "name": "db-test", "connection_string": "   "}
+    with patch("manager.server.config_manager.update_server", side_effect=ValueError("connection_string is required")):
+        response = client.put("/api/servers/db-test", json=entry)
+    assert response.status_code == 400
