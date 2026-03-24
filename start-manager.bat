@@ -44,6 +44,17 @@ if errorlevel 1 (
 )
 
 echo.
+
+REM Controlla se la porta 8090 e' gia' in uso
+netstat -ano | findstr ":8090 " | findstr LISTENING >nul 2>&1
+if not errorlevel 1 (
+    echo Il manager e' gia' in esecuzione su http://localhost:8090
+    echo Apertura browser...
+    start http://localhost:8090
+    timeout /t 2 >nul
+    exit /b 0
+)
+
 echo Avvio in corso...
 echo Il browser si apre automaticamente su http://localhost:8090
 echo Premi Ctrl+C per fermare il server.
