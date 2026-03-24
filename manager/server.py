@@ -8,7 +8,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from manager import config_manager, connection_tester
 
@@ -31,6 +31,16 @@ class ServerEntry(BaseModel):
     blacklist_tables: Optional[str] = ""
     log_level: Optional[str] = "INFO"
 
+    @field_validator("name")
+    @classmethod
+    def name_no_url_unsafe(cls, v: str) -> str:
+        import re
+        if not v.strip():
+            raise ValueError("name cannot be empty")
+        if re.search(r'[/?#%]', v):
+            raise ValueError("name cannot contain /, ?, #, or % characters")
+        return v
+
 
 class TestRequest(BaseModel):
     connection_string: str
@@ -42,7 +52,10 @@ class TestRequest(BaseModel):
 
 @app.get("/api/servers")
 def get_servers():
-    return config_manager.list_servers()
+    try:
+        return config_manager.list_servers()
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/servers", status_code=201)
@@ -75,6 +88,8 @@ def delete_server(name: str):
         config_manager.delete_server(name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     return {"ok": True}
 
 

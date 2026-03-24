@@ -96,3 +96,15 @@ def test_put_server_blank_connection_string_returns_400():
     with patch("manager.server.config_manager.update_server", side_effect=ValueError("connection_string is required")):
         response = client.put("/api/servers/db-test", json=entry)
     assert response.status_code == 400
+
+
+def test_get_servers_malformed_config_returns_500():
+    with patch("manager.server.config_manager.list_servers", side_effect=ValueError("malformed JSON")):
+        response = client.get("/api/servers")
+    assert response.status_code == 500
+
+
+def test_post_server_name_with_slash_returns_422():
+    entry = {**SAMPLE_ENTRY, "name": "db/prod"}
+    response = client.post("/api/servers", json=entry)
+    assert response.status_code == 422

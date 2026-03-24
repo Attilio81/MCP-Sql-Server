@@ -23,7 +23,11 @@ def read_config(path: Path) -> dict:
     """Return parsed config dict; returns {'mcpServers': {}} if file missing."""
     if not path.exists():
         return {"mcpServers": {}}
-    return json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"claude_desktop_config.json is malformed JSON: {exc}") from exc
 
 
 def _write_config(path: Path, config: dict) -> None:

@@ -43,6 +43,13 @@ def test_read_config_returns_parsed_json(tmp_path):
     assert read_config(cfg) == {"mcpServers": {}}
 
 
+def test_read_config_malformed_json_raises_value_error(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed JSON"):
+        read_config(cfg)
+
+
 def test_serialize_and_parse_roundtrip():
     serialized = _serialize_entry(SAMPLE_ENTRY)
     assert serialized["command"] == "python"
