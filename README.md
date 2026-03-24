@@ -39,14 +39,20 @@ A built-in web UI for managing SQL Server MCP connections — add, edit, delete,
 
 ### Install & Run
 
-```bash
-# Install manager dependencies (FastAPI + uvicorn)
-pip install -e ".[manager]"
+**Windows (raccomandato):**
+```bat
+setup.bat          # installa tutto la prima volta
+start-manager.bat  # avvia il manager (doppio click da Explorer)
+```
 
-# Start the manager — opens browser automatically
+**Manuale:**
+```bash
+pip install -e ".[manager]"
 python -m manager.server
 # → http://localhost:8090
 ```
+
+> Se il manager è già in esecuzione, `start-manager.bat` apre direttamente il browser senza riavviare.
 
 ### What It Does
 
@@ -62,14 +68,19 @@ python -m manager.server
 Each configured connection appears as a card:
 
 ```
-● db-vendite         🖥 srv1 › Vendite    schema: dbo    max 100 righe    timeout 30s    [⚡] [✏️] [🗑]
-● db-magazzino       🖥 srv2 › Magazzino  schema: dbo,wms max 200 righe   timeout 60s    [⚡] [✏️] [🗑]
-✗ db-contabilita     🖥 srv1 › Contabilita                                ✗ Connessione fallita  [⚡] [✏️] [🗑]
+● db-vendite     🖥 srv1 › Vendite     schema: dbo   max 100 righe   [⚡] [CC] [✏️] [🗑]
+● db-magazzino   🖥 srv2 › Magazzino   schema: dbo                   [⚡] [CC] [✏️] [🗑]
+✗ db-contabilita 🖥 srv1 › Contabilita ✗ Connessione fallita         [⚡] [CC] [✏️] [🗑]
 ```
 
 The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout.
 
-Card actions: **⚡** test connection · **CC** register on Claude Code · **✏️** edit · **🗑** delete
+| Button | Action |
+|--------|--------|
+| ⚡ | Testa la connessione al volo |
+| CC | Registra su Claude Code via `claude mcp add --scope user` |
+| ✏️ | Modifica la configurazione |
+| 🗑 | Elimina la connessione |
 
 ---
 
