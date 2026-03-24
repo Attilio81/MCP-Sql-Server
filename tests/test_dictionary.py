@@ -60,7 +60,7 @@ def _run(arguments, dict_path):
     async def _inner():
         with patch("mcp_sqlserver.tools.dictionary.config") as mock_cfg:
             mock_cfg.DICTIONARY_FILE = str(dict_path)
-            return await handle_update_dictionary(arguments)
+            return await handle_update_dictionary(None, arguments)
     return asyncio.run(_inner())
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from mcp.types import TextContent
 
 from mcp_sqlserver import config
+from mcp_sqlserver.pool import ConnectionPool
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ _DEFAULT_TEMPLATE = """\
 """
 
 
-async def handle_update_dictionary(arguments: dict) -> list[TextContent]:
+async def handle_update_dictionary(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
     """Add or update a row in the semantic dictionary file.
 
     Called by Claude every time it discovers a non-obvious mapping between
@@ -90,7 +91,10 @@ async def handle_update_dictionary(arguments: dict) -> list[TextContent]:
         dict_path.parent.mkdir(parents=True, exist_ok=True)
 
     updated = _upsert_row(content, section, key, row)
-    dict_path.write_text(updated, encoding="utf-8")
+    try:
+        dict_path.write_text(updated, encoding="utf-8")
+    except OSError as e:
+        return [TextContent(type="text", text=f"❌ Errore scrittura dizionario: {e}")]
 
     logger.info("Dizionario aggiornato: sezione=%s key=%s", section, key)
     return [TextContent(type="text", text=f"✅ Dizionario aggiornato: '{key}' salvato in '{section}'")]
