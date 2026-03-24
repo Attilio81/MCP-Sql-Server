@@ -25,9 +25,11 @@ A secure and production-ready MCP (Model Context Protocol) server for SQL Server
   - `search_columns`: Search columns by name across all tables (wildcard support)
   - `get_table_statistics`: Per-column statistics (distinct values, NULLs, min/max)
   - `get_views`: List database views with optional SQL definitions
+- **Semantic Dictionary**: Per-server Markdown file that Claude auto-populates as it discovers business-name → table/column mappings. Exposed as `db://dictionary` Resource (auto-loaded each session) and writable via `update_dictionary` Tool. Editable from the Manager UI.
 - **MCP Resources**:
   - `db://schema/overview`: Full database schema overview (all tables, columns, types, PKs)
   - `db://schema/tables/{table_name}`: Detailed schema for a single table
+  - `db://dictionary`: Semantic dictionary — business language → schema mappings accumulated by Claude
 
 ## SQL MCP Manager
 
@@ -69,14 +71,73 @@ Each configured connection appears as a card:
 ✗ db-contabilita 🖥 srv1 › Contabilita ✗ Connessione fallita         [⚡] [CC] [✏️] [🗑]
 ```
 
-The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout.
+The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout, File Dizionario.
 
 | Button | Action |
 |--------|--------|
 | ⚡ | Testa la connessione al volo |
 | CC | Registra su Claude Code via `claude mcp add --scope user` |
+| 📖 | Apre l'editor del dizionario semantico |
 | ✏️ | Modifica la configurazione |
 | 🗑 | Elimina la connessione |
+
+---
+
+## Dizionario Semantico
+
+Ogni database aziendale ha un vocabolario interno che non si deduce dallo schema: `anagra` non dice niente, ma `clienti` sì. Il dizionario semantico è un file Markdown in cui Claude accumula questa conoscenza man mano che chatta con te — senza che tu debba documentare nulla a mano.
+
+### Come funziona
+
+1. Chiedi: *"quante vendite ha fatto Mario Rossi?"*
+2. Claude esplora lo schema, scopre che `Mario Rossi` è in `anagra.cognome + nome`
+3. Claude salva questa scoperta nel dizionario (in background, nessuna conferma richiesta)
+4. Claude risponde: *"Ho salvato nel dizionario che 'cliente per nome' corrisponde ai campi `cognome, nome` della tabella `anagra`"*
+5. Sessioni successive: Claude carica `db://dictionary` all'avvio e parte già informato
+
+### Formato del file
+
+```markdown
+# Dizionario Semantico
+> Aggiornato automaticamente da Claude. Modificabile manualmente.
+
+## Entità di Business
+| Termine utente | Tabella | Campi chiave | Note |
+|----------------|---------|--------------|------|
+| cliente | anagra | codice, cognome, nome | |
+| articolo | tabArt | codart, descr | |
+
+## Filtri e Alias
+| Espressione utente | SQL equivalente | Note |
+|--------------------|-----------------|------|
+| "attivo" | stato = 'A' | |
+| "anno corrente" | YEAR(data_doc) = YEAR(GETDATE()) | |
+
+## Relazioni Notevoli
+| Tabella da | Campo | Tabella a | Campo | Descrizione |
+|------------|-------|-----------|-------|-------------|
+| anagra | codice | ordini | codcli | clienti e loro ordini |
+```
+
+### Configurazione
+
+Aggiungi `--dictionary-file` agli args del server MCP (consigliato: path assoluto):
+
+```json
+"args": [
+  "-m", "mcp_sqlserver.server",
+  "--connection-string", "...",
+  "--dictionary-file", "C:\\dizionari\\vendite_dictionary.md"
+]
+```
+
+In setup multi-server, ogni server ha il proprio file dizionario — domini diversi, vocabolari diversi.
+
+### Editor nel Manager UI
+
+Ogni card server nel Manager ha un pulsante **📖** che apre un modal editor per visualizzare e modificare il dizionario manualmente (utile per correzioni o per copiare sezioni da un database all'altro).
+
+> Documentazione completa: [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md)
 
 ---
 
@@ -281,6 +342,7 @@ See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for detailed Claude Code integr
 | `--blacklist-tables` | `BLACKLIST_TABLES` | *(none)* | Comma-separated patterns, wildcards ok |
 | `--allowed-schemas` | `ALLOWED_SCHEMAS` | *(all)* | Comma-separated schema whitelist |
 | `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
+| `--dictionary-file` | `DICTIONARY_FILE` | `semantic_dictionary.md` | Path del file dizionario semantico (consigliato: path assoluto) |
 
 ## Usage
 
@@ -465,6 +527,20 @@ Lists all database views with optional SQL definitions.
 List all views in the dbo schema
 ```
 
+#### `update_dictionary`
+
+Saves a semantic mapping to the per-server dictionary file. Called automatically by Claude when it discovers a non-obvious link between business language and database schema — no user action required.
+
+**Parameters:**
+- `section` (required): `"entities"` | `"filters"` | `"relations"`
+- `key` (required): First-column value, used for deduplication
+- `row` (required): Complete Markdown table row
+
+**Claude calls this automatically when it learns:**
+- Which table/columns correspond to a business entity named by the user
+- A recurring filter expression (e.g. "attivo" → `stato = 'A'`)
+- A non-obvious join relationship between tables
+
 ### Available Resources
 
 MCP Resources provide read-only context data that clients can retrieve automatically.
@@ -483,6 +559,12 @@ Show me the database schema overview
 Detailed schema for a single table via URI template.
 
 **Example URI:** `db://schema/tables/dbo.Orders`
+
+#### `db://dictionary`
+
+Semantic dictionary for this database — business language mapped to physical schema. Claude loads this automatically at session start. Returns empty string if no dictionary has been created yet.
+
+See [Dizionario Semantico](#dizionario-semantico) and [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md).
 
 ## Security
 
@@ -652,7 +734,7 @@ mcp-sqlserver/
 │   ├── security.py        # SecurityValidator, dangerous keywords & patterns
 │   ├── pool.py            # ConnectionPool with auto-reconnection
 │   ├── helpers.py         # Output formatting (Markdown tables)
-│   ├── resources.py       # MCP Resources (schema overview, table schema)
+│   ├── resources.py       # MCP Resources (schema overview, table schema, dictionary)
 │   └── tools/
 │       ├── __init__.py    # Re-exports all tool handlers
 │       ├── list_tables.py
@@ -662,7 +744,8 @@ mcp-sqlserver/
 │       ├── indexes.py
 │       ├── search_columns.py
 │       ├── statistics.py
-│       └── views.py
+│       ├── views.py
+│       └── dictionary.py  # update_dictionary tool + _upsert_row
 ├── manager/               # SQL MCP Manager — local web UI
 │   ├── __init__.py
 │   ├── server.py          # FastAPI app: API routes + serve index.html
@@ -674,7 +757,8 @@ mcp-sqlserver/
 │   ├── test_security_validator.py   # Unit tests for SecurityValidator & helpers
 │   ├── test_config_manager.py       # Unit tests for config_manager
 │   ├── test_connection_tester.py    # Unit tests for connection_tester
-│   └── test_api.py                  # API tests via FastAPI TestClient
+│   ├── test_api.py                  # API tests via FastAPI TestClient
+│   └── test_dictionary.py           # Unit tests for dictionary tool (no DB required)
 ├── .env.example           # Environment template
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
