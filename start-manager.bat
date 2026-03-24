@@ -8,6 +8,8 @@ echo ========================================
 echo SQL MCP Manager
 echo ========================================
 echo.
+echo Cartella: %CD%
+echo.
 
 REM Check Python installation
 python --version >nul 2>&1
@@ -18,8 +20,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Python trovato:
+python --version
+
 REM Activate virtual environment if present
 if exist venv\Scripts\activate.bat (
+    echo Attivazione virtual environment...
     call venv\Scripts\activate.bat
 )
 
@@ -29,14 +35,22 @@ if errorlevel 1 (
     echo [INFO] Installazione dipendenze manager...
     pip install -e ".[manager]"
     if errorlevel 1 (
-        echo [ERROR] Installazione fallita. Esegui prima setup.bat
+        echo.
+        echo [ERROR] Installazione fallita.
+        echo Verifica di essere nella cartella giusta e di avere pip disponibile.
         pause
         exit /b 1
     )
 )
 
+echo.
 echo Avvio in corso...
 echo Il browser si apre automaticamente su http://localhost:8090
 echo Premi Ctrl+C per fermare il server.
 echo.
 python -m manager.server
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Il server si e' fermato con un errore.
+    pause
+)
