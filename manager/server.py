@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """FastAPI app — API routes + serve index.html."""
+import os
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,7 @@ class ServerEntry(BaseModel):
     allowed_schemas: Optional[str] = ""
     blacklist_tables: Optional[str] = ""
     log_level: Optional[str] = "INFO"
+    dictionary_file: Optional[str] = ""
 
     @field_validator("name")
     @classmethod
@@ -47,6 +49,10 @@ class ServerEntry(BaseModel):
 
 class TestRequest(BaseModel):
     connection_string: str
+
+
+class DictionaryContent(BaseModel):
+    content: str
 
 
 # ------------------------------------------------------------------ #
@@ -101,6 +107,33 @@ def test_connection(req: TestRequest):
     return connection_tester.test_connection(req.connection_string)
 
 
+@app.get("/api/dictionary/{server_name}")
+def get_dictionary(server_name: str):
+    try:
+        path = config_manager.get_dictionary_path(server_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if not path.exists():
+        return {"content": ""}
+    return {"content": path.read_text(encoding="utf-8")}
+
+
+@app.post("/api/dictionary/{server_name}")
+def save_dictionary(server_name: str, body: DictionaryContent):
+    try:
+        path = config_manager.get_dictionary_path(server_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(body.content, encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"ok": True}
+
+
 @app.post("/api/servers/{name}/register-claude-code")
 def register_claude_code(name: str):
     # Find the entry
@@ -130,7 +163,8 @@ def register_claude_code(name: str):
                         ("pool_size", "--pool-size"), ("pool_timeout", "--pool-timeout"),
                         ("allowed_schemas", "--allowed-schemas"),
                         ("blacklist_tables", "--blacklist-tables"),
-                        ("log_level", "--log-level")):
+                        ("log_level", "--log-level"),
+                        ("dictionary_file", "--dictionary-file")):
         val = entry.get(field)
         if val is not None and str(val).strip() not in ("", "INFO"):
             cmd.extend([flag, str(val)])

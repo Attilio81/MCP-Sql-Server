@@ -15,6 +15,7 @@ SAMPLE_ENTRY = {
     "allowed_schemas": "dbo",
     "blacklist_tables": "",
     "log_level": "INFO",
+    "dictionary_file": "",
 }
 
 
@@ -108,3 +109,43 @@ def test_post_server_name_with_slash_returns_422():
     entry = {**SAMPLE_ENTRY, "name": "db/prod"}
     response = client.post("/api/servers", json=entry)
     assert response.status_code == 422
+
+
+# ── Dictionary endpoints ────────────────────────────────────────────────────
+
+def test_get_dictionary_returns_content(tmp_path):
+    dict_path = tmp_path / "dict.md"
+    dict_path.write_text("# Dizionario", encoding="utf-8")
+    with patch("manager.server.config_manager.get_dictionary_path", return_value=dict_path):
+        response = client.get("/api/dictionary/db-test")
+    assert response.status_code == 200
+    assert response.json()["content"] == "# Dizionario"
+
+
+def test_get_dictionary_returns_empty_when_file_missing(tmp_path):
+    dict_path = tmp_path / "nonexistent.md"
+    with patch("manager.server.config_manager.get_dictionary_path", return_value=dict_path):
+        response = client.get("/api/dictionary/db-test")
+    assert response.status_code == 200
+    assert response.json()["content"] == ""
+
+
+def test_get_dictionary_404_for_unknown_server():
+    with patch("manager.server.config_manager.get_dictionary_path", side_effect=KeyError("not found")):
+        response = client.get("/api/dictionary/db-unknown")
+    assert response.status_code == 404
+
+
+def test_post_dictionary_saves_content(tmp_path):
+    dict_path = tmp_path / "dict.md"
+    with patch("manager.server.config_manager.get_dictionary_path", return_value=dict_path):
+        response = client.post("/api/dictionary/db-test", json={"content": "# New content"})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert dict_path.read_text(encoding="utf-8") == "# New content"
+
+
+def test_post_dictionary_404_for_unknown_server():
+    with patch("manager.server.config_manager.get_dictionary_path", side_effect=KeyError("not found")):
+        response = client.post("/api/dictionary/db-test", json={"content": "x"})
+    assert response.status_code == 404
