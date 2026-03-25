@@ -93,3 +93,7 @@ temp/
 *.backup
 .superpowers/
 .worktrees/
+
+# Semantic dictionary files (user data, not code)
+*_dictionary.md
+semantic_dictionary.md

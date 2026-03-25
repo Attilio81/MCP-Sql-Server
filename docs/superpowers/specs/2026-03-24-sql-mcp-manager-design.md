@@ -148,3 +148,217 @@ python -m manager.server
 - Authentication / access control (runs locally only)
 - PostgreSQL / MySQL support (future roadmap)
 - Export/import of config
+
+---
+
+# Feature: Dizionario Semantico per Server
+
+**Data:** 2026-03-24
+**Status:** Draft
+
+---
+
+## Concetto
+
+Ogni server MCP accumula nel tempo una mappa tra linguaggio di business e schema fisico del database. Quando l'utente chiede *"quante vendite ha fatto Mario Rossi?"*, Claude non sa a priori che "Mario Rossi" è in `anagra.cognome + nome`. Dopo aver eseguito le query e trovato la risposta, Claude **scrive questa conoscenza** in un file Markdown dedicato al server.
+
+Alla sessione successiva, Claude **legge il dizionario** e sa già dove cercare — senza dover re-esplorare lo schema.
+
+Il flusso è:
+
+```
+Utente chiede X
+   → Claude esplora lo schema / esegue query
+   → Claude trova il mapping (termine business → tabella/colonna)
+   → Claude chiama update_dictionary per salvare la scoperta
+   → Sessioni future: Claude legge db://dictionary e già conosce il mapping
+```
+
+Il dizionario è un file `.md` umano-leggibile. L'utente può modificarlo manualmente (es. correggere un errore, copiare mappings da un altro server) via Manager UI.
+
+---
+
+## Formato del File Dizionario
+
+Il file è Markdown strutturato con tabelle. Claude deve rispettare questa struttura per garantire leggibilità e aggiornamenti incrementali corretti.
+
+```markdown
+# Dizionario Semantico: {nome_database}
+> Aggiornato automaticamente da Claude. Modificabile manualmente.
+
+## Entità di Business
+| Termine utente | Tabella | Campi chiave | Note |
+|----------------|---------|--------------|------|
+| cliente | anagra | codice, cognome, nome | chiave primaria: codice |
+| articolo | tabArt | codart, descr | |
+| agente | agenti | codage, descage | |
+
+## Filtri e Alias
+| Espressione utente | SQL equivalente | Note |
+|--------------------|-----------------|------|
+| "attivo" | stato = 'A' | campo in anagra |
+| "anno corrente" | YEAR(data_doc) = YEAR(GETDATE()) | |
+| "clienti nuovi" | data_ins >= DATEADD(year,-1,GETDATE()) | |
+
+## Relazioni Notevoli
+| Tabella da | Campo | Tabella a | Campo | Descrizione |
+|------------|-------|-----------|-------|-------------|
+| anagra | codice | ordini | codcli | clienti e loro ordini |
+| tabArt | codart | ordini | codart | articoli negli ordini |
+```
+
+---
+
+## MCP Server: Modifiche Backend
+
+### Nuovo parametro di configurazione (`config.py`)
+
+```
+--dictionary-file PATH   Path del file dizionario (default: semantic_dictionary.md)
+DICTIONARY_FILE          Variabile d'ambiente equivalente
+```
+
+Il default `semantic_dictionary.md` è relativo alla working directory del processo MCP. Per configurazioni multi-server si raccomanda un path assoluto (es. `C:\dicts\vendite_dictionary.md`).
+
+### MCP Resource: `db://dictionary`
+
+Il dizionario viene esposto come **MCP Resource**, non solo come tool. Questo permette a Claude di caricarlo automaticamente come contesto all'inizio di ogni sessione, senza dover decidere attivamente di chiamare un tool.
+
+```
+URI:         db://dictionary
+Description: Dizionario semantico del database — mappa tra linguaggio di business e schema fisico
+Mime-type:   text/markdown
+Behavior:    Se il file non esiste, restituisce stringa vuota (no errore)
+```
+
+Implementazione: aggiungere a `resources.py` analogamente alle risorse `db://schema/overview` esistenti.
+
+### MCP Tool: `update_dictionary`
+
+Tool che Claude chiama per **aggiungere o aggiornare una singola riga** in una delle tre sezioni del dizionario. Non sovrascrive il file — legge, aggiorna la riga specifica o aggiunge in fondo alla sezione, riscrive.
+
+**Schema input:**
+```json
+{
+  "section": "entities | filters | relations",
+  "key": "valore del primo campo (usato per deduplicazione, es. 'cliente')",
+  "row": "riga completa in formato Markdown table (es. '| cliente | anagra | codice, cognome | |')"
+}
+```
+
+**Comportamento:**
+- Se il file non esiste → lo crea con la struttura base
+- Se la riga con quel `term` esiste già nella sezione → la sostituisce
+- Se non esiste → la aggiunge in fondo alla sezione
+
+**Descrizione del tool per Claude** (istruzioni su *quando* chiamarlo):
+
+> Chiama `update_dictionary` ogni volta che scopri un'associazione non ovvia tra linguaggio di business e schema del database:
+> - Quando identifichi quale tabella/colonne corrispondono a un'entità nominata dall'utente (es. "cliente" → `anagra`)
+> - Quando apprendi un'espressione filtro ricorrente (es. "attivo" → `stato = 'A'`)
+> - Quando scopri una relazione join non deducibile dai nomi delle colonne
+>
+> Non chiamare `update_dictionary` per informazioni già presenti nel dizionario o per mappings ovvi dal nome della tabella stessa.
+
+**Human-on-the-loop: NO.** Il tool deve essere chiamato silenziosamente senza richiedere conferma all'utente. Claude notifica la scoperta in modo conversazionale (es. *"Ho salvato nel dizionario che 'cliente' corrisponde alla tabella `anagra`"*) ma non attende approvazione. Il Manager UI è il meccanismo di correzione post-hoc se il mapping salvato fosse errato. Richiedere conferma ad ogni discovery interromperebbe il flusso conversazionale in modo inaccettabile.
+
+---
+
+## Manager Backend: Nuovi Endpoint
+
+Questi endpoint leggono il `claude_desktop_config.json` per trovare il `--dictionary-file` associato al server, poi leggono/scrivono quel file.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/dictionary/{server_name}` | Legge e restituisce il contenuto del file `.md` associato al server. Se il file non esiste, restituisce stringa vuota. |
+| `POST` | `/api/dictionary/{server_name}` | Riceve `{"content": "..."}` e sovrascrive il file `.md`. |
+
+**Logica GET:**
+1. Trova il server `{server_name}` in `claude_desktop_config.json`
+2. Cerca `--dictionary-file` negli `args`; se assente usa il default `semantic_dictionary.md`
+3. Se il path è relativo, lo risolve relativo alla directory del progetto MCP (directory del `server.py`)
+4. Legge e restituisce il contenuto
+
+**Logica POST:**
+1. Come sopra per trovare il path
+2. Validazione: il path deve restare dentro la directory del progetto (no path traversal)
+3. Crea la directory se non esiste
+4. Scrive con scrittura atomica (`.tmp` + `os.replace()`)
+
+**Errori:**
+- `404` se il server non esiste in config
+- `400` se il path risolto è fuori dalla directory consentita
+
+---
+
+## Manager Frontend: UI per il Dizionario
+
+### Pulsante su ogni card
+
+Aggiungere un pulsante `📖` accanto agli esistenti (⚡ Test, ✏️ Edit, 🗑 Delete) su ogni server card.
+
+### Modal Editor
+
+Al click, si apre un modal con:
+
+- **Titolo:** "Dizionario Semantico — {nome_server}"
+- **Descrizione:** testo grigio piccolo: *"Questo file viene aggiornato automaticamente da Claude. Puoi modificarlo manualmente o copiare sezioni da altri dizionari."*
+- **Textarea:** grande (min 400px), font monospace, mostra il contenuto Markdown corrente
+- **Pulsanti:**
+  - `Salva` → `POST /api/dictionary/{server_name}` con il contenuto aggiornato
+  - `Chiudi` → chiude il modal senza salvare
+- **Feedback:** banner verde "Dizionario salvato" / rosso "Errore nel salvataggio"
+
+Il contenuto della textarea è caricato via `GET /api/dictionary/{server_name}` all'apertura del modal (non al caricamento della pagina).
+
+---
+
+## Aggiornamento Data Model
+
+Il data model esistente non cambia struttura. Il `--dictionary-file` è un parametro opzionale del server MCP, gestito come tutti gli altri parametri in `config_manager.py`:
+
+```json
+{
+  "name": "db-vendite",
+  "connection_string": "...",
+  "dictionary_file": "C:\\dicts\\vendite_dictionary.md",
+  ...
+}
+```
+
+`config_manager.py` serializza `dictionary_file` come `["--dictionary-file", "path"]` negli `args` e lo deserializza allo stesso modo.
+
+---
+
+## Aggiornamento UI Form (Aggiungi/Modifica Server)
+
+Nel form inline di aggiunta/modifica server, aggiungere un campo opzionale:
+
+- **Label:** "File Dizionario (opzionale)"
+- **Placeholder:** `semantic_dictionary.md`
+- **Hint:** testo grigio: *"Path del file Markdown in cui Claude accumula la conoscenza semantica del database. Lascia vuoto per usare il default."*
+
+---
+
+## File Map Aggiornata
+
+| Action | Path | Responsabilità |
+|--------|------|----------------|
+| Modify | `src/mcp_sqlserver/config.py` | Aggiungere `DICTIONARY_FILE` / `--dictionary-file` |
+| Modify | `src/mcp_sqlserver/resources.py` | Aggiungere resource `db://dictionary` |
+| Create | `src/mcp_sqlserver/tools/dictionary.py` | Tool `update_dictionary` |
+| Modify | `src/mcp_sqlserver/tools/__init__.py` | Re-export `handle_update_dictionary` |
+| Modify | `src/mcp_sqlserver/server.py` | Registrare tool + dispatch |
+| Modify | `manager/server.py` | Aggiungere GET/POST `/api/dictionary/{server_name}` |
+| Modify | `manager/config_manager.py` | Serializzare/deserializzare `dictionary_file` |
+| Modify | `manager/static/index.html` | Pulsante 📖, modal editor |
+| Create | `tests/test_dictionary_tool.py` | Unit test per `update_dictionary` |
+
+---
+
+## Scope Escluso
+
+- Versionamento del dizionario (git history è sufficiente)
+- Merge automatico tra dizionari di server diversi
+- Ricerca/indicizzazione vettoriale (plain text è sufficiente per il volume atteso)
+- Traduzione automatica da italiano a inglese nei termini
