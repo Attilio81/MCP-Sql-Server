@@ -37,20 +37,20 @@ A built-in web UI for managing SQL Server MCP connections — add, edit, delete,
 
 ### Install & Run
 
-**Windows (raccomandato):**
+**Windows (recommended):**
 ```bat
-setup.bat          # installa tutto la prima volta
-start-manager.bat  # avvia il manager (doppio click da Explorer)
+setup.bat          # install everything the first time
+start-manager.bat  # start the manager (double-click from Explorer)
 ```
 
-**Manuale:**
+**Manual:**
 ```bash
 pip install -e ".[manager]"
 python -m manager.server
 # → http://localhost:8090
 ```
 
-> Se il manager è già in esecuzione, `start-manager.bat` apre direttamente il browser senza riavviare.
+> If the manager is already running, `start-manager.bat` opens the browser directly without restarting.
 
 ### What It Does
 
@@ -71,73 +71,73 @@ Each configured connection appears as a card:
 ✗ db-contabilita 🖥 srv1 › Contabilita ✗ Connessione fallita         [⚡] [CC] [✏️] [🗑]
 ```
 
-The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout, File Dizionario.
+The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout, Dictionary File.
 
 | Button | Action |
 |--------|--------|
-| ⚡ | Testa la connessione al volo |
-| CC | Registra su Claude Code via `claude mcp add --scope user` |
-| 📖 | Apre l'editor del dizionario semantico |
-| ✏️ | Modifica la configurazione |
-| 🗑 | Elimina la connessione |
+| ⚡ | Test the connection on the fly |
+| CC | Register in Claude Code via `claude mcp add --scope user` |
+| 📖 | Open the semantic dictionary editor |
+| ✏️ | Edit the configuration |
+| 🗑 | Delete the connection |
 
 ---
 
-## Dizionario Semantico
+## Semantic Dictionary
 
-Ogni database aziendale ha un vocabolario interno che non si deduce dallo schema: `anagra` non dice niente, ma `clienti` sì. Il dizionario semantico è un file Markdown in cui Claude accumula questa conoscenza man mano che chatta con te — senza che tu debba documentare nulla a mano.
+Every business database has an internal vocabulary that can't be inferred from the schema alone: `anagra` means nothing on its own, but `customers` does. The semantic dictionary is a Markdown file where Claude accumulates this knowledge as it chats with you — no manual documentation required.
 
-### Come funziona
+### How it works
 
-1. Chiedi: *"quante vendite ha fatto Mario Rossi?"*
-2. Claude esplora lo schema, scopre che `Mario Rossi` è in `anagra.cognome + nome`
-3. Claude salva questa scoperta nel dizionario (in background, nessuna conferma richiesta)
-4. Claude risponde: *"Ho salvato nel dizionario che 'cliente per nome' corrisponde ai campi `cognome, nome` della tabella `anagra`"*
-5. Sessioni successive: Claude carica `db://dictionary` all'avvio e parte già informato
+1. You ask: *"how many sales did Mario Rossi make?"*
+2. Claude explores the schema, discovers that `Mario Rossi` is stored in `anagra.cognome + nome`
+3. Claude saves this discovery to the dictionary (in the background, no confirmation required)
+4. Claude replies: *"I saved to the dictionary that 'customer by name' maps to fields `cognome, nome` in table `anagra`"*
+5. Next sessions: Claude loads `db://dictionary` at startup and starts already informed
 
-### Formato del file
+### File format
 
 ```markdown
-# Dizionario Semantico
-> Aggiornato automaticamente da Claude. Modificabile manualmente.
+# Semantic Dictionary
+> Automatically updated by Claude. Can be edited manually.
 
-## Entità di Business
-| Termine utente | Tabella | Campi chiave | Note |
-|----------------|---------|--------------|------|
-| cliente | anagra | codice, cognome, nome | |
-| articolo | tabArt | codart, descr | |
+## Business Entities
+| User term | Table | Key fields | Notes |
+|-----------|-------|------------|-------|
+| customer  | anagra | codice, cognome, nome | |
+| product   | tabArt | codart, descr | |
 
-## Filtri e Alias
-| Espressione utente | SQL equivalente | Note |
-|--------------------|-----------------|------|
-| "attivo" | stato = 'A' | |
-| "anno corrente" | YEAR(data_doc) = YEAR(GETDATE()) | |
+## Filters and Aliases
+| User expression | SQL equivalent | Notes |
+|-----------------|----------------|-------|
+| "active"        | stato = 'A' | |
+| "current year"  | YEAR(data_doc) = YEAR(GETDATE()) | |
 
-## Relazioni Notevoli
-| Tabella da | Campo | Tabella a | Campo | Descrizione |
-|------------|-------|-----------|-------|-------------|
-| anagra | codice | ordini | codcli | clienti e loro ordini |
+## Notable Relationships
+| From table | Field | To table | Field | Description |
+|------------|-------|----------|-------|-------------|
+| anagra | codice | ordini | codcli | customers and their orders |
 ```
 
-### Configurazione
+### Configuration
 
-Aggiungi `--dictionary-file` agli args del server MCP (consigliato: path assoluto):
+Add `--dictionary-file` to the MCP server args (recommended: absolute path):
 
 ```json
 "args": [
   "-m", "mcp_sqlserver.server",
   "--connection-string", "...",
-  "--dictionary-file", "C:\\dizionari\\vendite_dictionary.md"
+  "--dictionary-file", "C:\\dictionaries\\sales_dictionary.md"
 ]
 ```
 
-In setup multi-server, ogni server ha il proprio file dizionario — domini diversi, vocabolari diversi.
+In a multi-server setup, each server has its own dictionary file — different domains, different vocabularies.
 
-### Editor nel Manager UI
+### Editor in Manager UI
 
-Ogni card server nel Manager ha un pulsante **📖** che apre un modal editor per visualizzare e modificare il dizionario manualmente (utile per correzioni o per copiare sezioni da un database all'altro).
+Each server card in the Manager has a **📖** button that opens a modal editor to view and edit the dictionary manually (useful for corrections or copying sections between databases).
 
-> Documentazione completa: [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md)
+> Full documentation: [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md)
 
 ---
 
@@ -342,7 +342,7 @@ See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for detailed Claude Code integr
 | `--blacklist-tables` | `BLACKLIST_TABLES` | *(none)* | Comma-separated patterns, wildcards ok |
 | `--allowed-schemas` | `ALLOWED_SCHEMAS` | *(all)* | Comma-separated schema whitelist |
 | `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
-| `--dictionary-file` | `DICTIONARY_FILE` | `semantic_dictionary.md` | Path del file dizionario semantico (consigliato: path assoluto) |
+| `--dictionary-file` | `DICTIONARY_FILE` | `semantic_dictionary.md` | Path to the semantic dictionary file (recommended: absolute path) |
 
 ## Usage
 
