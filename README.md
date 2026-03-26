@@ -57,7 +57,7 @@ python -m manager.server
 - **Add / Edit / Delete** SQL Server connections stored in `claude_desktop_config.json`
 - **Test** any connection string before saving — shows ✅ or ❌ with the error message
 - **Live status** — on page load, all configured servers are tested in parallel and shown as green/red dots
-- **Register on Claude Code** — one click on the **CC** button runs `claude mcp add` to make the server available in Claude Code too
+- **Register on Claude Code** — one click on the **CC** button runs `claude mcp add --scope user` to make the server available in all Claude Code sessions (note: Claude Code stores this separately from `claude_desktop_config.json`)
 - **Preserves** all other entries in your Claude Desktop config untouched
 - **Auto-detects** the config file path on Windows, macOS, and Linux
 
@@ -312,8 +312,21 @@ In the chat you can then ask:
 
 ### Claude Code Configuration
 
-Create `.claude/mcp.json` in your project directory (already in `.gitignore`):
+Claude Code stores MCP servers separately from Claude Desktop. There are two approaches:
 
+**Option A — Via Manager (recommended):** Add the server in the Manager, then click **CC** on the card. This runs `claude mcp add --scope user` and registers it globally for all Claude Code sessions.
+
+**Option B — CLI:**
+```bash
+claude mcp add mydb --scope user -- python -m mcp_sqlserver.server \
+  --connection-string "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes" \
+  --max-rows 100
+
+# Verify
+claude mcp list
+```
+
+**Option C — Per-project `.claude/mcp.json`:**
 ```json
 {
   "mcpServers": {
@@ -328,7 +341,9 @@ Create `.claude/mcp.json` in your project directory (already in `.gitignore`):
 }
 ```
 
-See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for detailed Claude Code integration.
+> The Manager reads/writes **only** `claude_desktop_config.json`. Servers registered via `claude mcp add --scope user` (or the CC button) live in Claude Code's own store and are **not** visible in the Manager unless also added there.
+
+See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for full details.
 
 ### All Available Parameters
 
