@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP SQL Server is a Python MCP (Model Context Protocol) server that exposes SQL Server database inspection and querying capabilities to Claude Desktop and Claude Code. It implements connection pooling, multi-layer SQL injection prevention, schema/table access controls, and the full MCP 2025-11-25 spec (Tools, Resources, Prompts).
+MCP SQL Server is a Python MCP (Model Context Protocol) server that exposes SQL Server database inspection and querying capabilities to Claude Desktop and Claude Code. It implements connection pooling, multi-layer SQL injection prevention, schema/table access controls, and the MCP 2025-11-25 spec (Tools, Resources).
 
 ## Development Commands
 
@@ -41,19 +41,21 @@ src/mcp_sqlserver/
 ├── config.py       # CLI arg parsing + env var fallback; module-level globals mutated by _load_config()
 ├── security.py     # SecurityValidator: is_table_allowed(), validate_query()
 ├── pool.py         # ConnectionPool: thread-safe Queue-based pool with auto-reconnect
-├── helpers.py      # Markdown table formatting
-├── resources.py    # MCP Resources: db://schema/overview, db://schema/tables/{name}
-├── prompts.py      # MCP Prompts: analyze-table, query-builder, data-dictionary
+├── helpers.py      # Markdown / CSV / JSON result formatting
+├── resources.py    # MCP Resources: db://schema/overview, db://schema/tables/{name}, db://dictionary
 └── tools/
     ├── __init__.py         # Re-exports all handle_* functions
     ├── list_tables.py
     ├── describe_table.py
-    ├── execute_query.py
+    ├── execute_query.py    # includes ensure_top() row-limit injection + per-table access checks
+    ├── explain.py          # estimated execution plan (SET SHOWPLAN_ALL)
     ├── relationships.py
     ├── indexes.py
     ├── search_columns.py
     ├── statistics.py
-    └── views.py
+    ├── views.py
+    ├── procedures.py
+    └── dictionary.py       # update_dictionary tool
 ```
 
 ### Key Design Decisions
@@ -62,13 +64,14 @@ src/mcp_sqlserver/
 
 **Connection pool**: `ConnectionPool` wraps a `queue.Queue` of `pyodbc` connections. Acquiring uses `pool.get(timeout=...)` (raises `Empty` → converted to `TimeoutError`). Every `get_connection()` context manager pings `SELECT 1` to detect dead connections and replaces them. Connections are always returned to the pool via `finally`, with a rollback and replacement-on-failure.
 
-**Security validation**: `SecurityValidator` in `security.py` has two public class methods:
+**Security validation**: `SecurityValidator` in `security.py` has three public class methods:
 - `is_table_allowed(table_name, schema)` — validates identifier format, schema whitelist, and blacklist wildcard patterns.
 - `validate_query(query)` — six ordered layers: length cap (4096 chars), null-byte check, Unicode normalisation, SELECT-only enforcement, injection regex patterns, dangerous keyword word-boundary check.
+- `extract_table_names(query)` — token scanner that pulls table refs from FROM/JOIN/APPLY/comma-joins/subqueries; `execute_query` and `explain_query` pass each ref through `is_table_allowed` so blacklist/whitelist also cover free-form SELECTs.
 
 **Tool handler pattern**: Each tool lives in its own file under `tools/` and exports a single `async def handle_*(pool, arguments)` function returning `list[TextContent]`. `server.py` dispatches via a plain `if/elif` chain in `call_tool()`. To add a new tool: create the handler file, re-export from `tools/__init__.py`, add a `Tool(...)` entry in `list_tools()`, and add the dispatch branch in `call_tool()`.
 
-**MCP resources and prompts** are registered at module load time via `register_resources(app, get_pool)` and `register_prompts(app)` called at the top of `server.py`, before the tool decorators.
+**MCP resources** are registered at module load time via `register_resources(app, get_pool)` called at the top of `server.py`, before the tool decorators. (MCP Prompts were removed — Claude handles analysis naturally.)
 
 ### Adding a New Tool
 

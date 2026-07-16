@@ -3,237 +3,91 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-green.svg)](https://modelcontextprotocol.io/specification/2025-11-25)
+[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)](tests/)
 
-A secure and production-ready MCP (Model Context Protocol) server for SQL Server database inspection and querying, designed for seamless integration with Claude Desktop and Claude Code.
-
-## Features
-
-- **Connection Pooling**: Efficient connection management with configurable pool size
-- **Advanced Security**:
-  - SQL injection prevention with prepared statements
-  - Table blacklist with wildcard support (`sys_*`, `*_audit`, etc.)
-  - Schema whitelist for access control
-  - Query validation (SELECT-only with dangerous keyword detection)
-  - Identifier validation to prevent injection
-- **Robust Error Handling**: Detailed logging with configurable levels
-- **Complete MCP Tools**:
-  - `list_tables`: List all accessible tables with metrics (row count, size)
-  - `describe_table`: Show complete schema with sample data
-  - `execute_query`: Execute safe SELECT queries with timeout
-  - `get_table_relationships`: Analyze foreign key relationships
-  - `get_table_indexes`: Show indexes with type, columns, uniqueness and fill factor
-  - `search_columns`: Search columns by name across all tables (wildcard support)
-  - `get_table_statistics`: Per-column statistics (distinct values, NULLs, min/max)
-  - `get_views`: List database views with optional SQL definitions
-- **Semantic Dictionary**: Per-server Markdown file that Claude auto-populates as it discovers business-name → table/column mappings. Exposed as `db://dictionary` Resource (auto-loaded each session) and writable via `update_dictionary` Tool. Editable from the Manager UI.
-- **MCP Resources**:
-  - `db://schema/overview`: Full database schema overview (all tables, columns, types, PKs)
-  - `db://schema/tables/{table_name}`: Detailed schema for a single table
-  - `db://dictionary`: Semantic dictionary — business language → schema mappings accumulated by Claude
-
-## SQL MCP Manager
-
-A built-in web UI for managing SQL Server MCP connections — add, edit, delete, and test all your configured databases from a single page, without editing JSON manually.
-
-### Install & Run
-
-**Windows (recommended):**
-```bat
-setup.bat          # install everything the first time
-start-manager.bat  # start the manager (double-click from Explorer)
-```
-
-**Manual:**
-```bash
-pip install -e ".[manager]"
-python -m manager.server
-# → http://localhost:8090
-```
-
-> If the manager is already running, `start-manager.bat` opens the browser directly without restarting.
-
-### What It Does
-
-- **Add / Edit / Delete** SQL Server connections stored in `claude_desktop_config.json`
-- **Test** any connection string before saving — shows ✅ or ❌ with the error message
-- **Live status** — on page load, all configured servers are tested in parallel and shown as green/red dots
-- **Register on Claude Code** — one click on the **CC** button runs `claude mcp add --scope user` to make the server available in all Claude Code sessions (note: Claude Code stores this separately from `claude_desktop_config.json`)
-- **Preserves** all other entries in your Claude Desktop config untouched
-- **Auto-detects** the config file path on Windows, macOS, and Linux
-
-### Interface
-
-Each configured connection appears as a card:
+A secure, production-ready [Model Context Protocol](https://modelcontextprotocol.io/) server that lets Claude Desktop and Claude Code inspect and query SQL Server databases — read-only by design, with multi-layer SQL injection prevention, table/schema access controls, and a self-learning semantic dictionary.
 
 ```
-● db-vendite     🖥 srv1 › Vendite     schema: dbo   max 100 righe   [⚡] [CC] [✏️] [🗑]
-● db-magazzino   🖥 srv2 › Magazzino   schema: dbo                   [⚡] [CC] [✏️] [🗑]
-✗ db-contabilita 🖥 srv1 › Contabilita ✗ Connessione fallita         [⚡] [CC] [✏️] [🗑]
+You:    How many orders did Mario Rossi place this year?
+Claude: (explores schema → finds anagra + ordini → runs a validated SELECT)
+        Mario Rossi placed 47 orders in 2026, totalling €12,350.
+        I saved to the dictionary that "customer by name" maps to anagra.cognome + nome.
 ```
 
-The form (add/edit) includes: Name, Connection String, Max Rows, Allowed Schemas, Blacklist Tables, Query Timeout, Pool Size, Pool Timeout, Dictionary File.
+## Highlights
 
-| Button | Action |
-|--------|--------|
-| ⚡ | Test the connection on the fly |
-| CC | Register in Claude Code via `claude mcp add --scope user` |
-| 📖 | Open the semantic dictionary editor |
-| ✏️ | Edit the configuration |
-| 🗑 | Delete the connection |
+- **Read-only by design** — only `SELECT` statements pass validation; six ordered defence layers block everything else
+- **Access control** — table blacklist with wildcards (`sys_*`, `*_audit`) and schema whitelist, enforced on *every* tool including free-form queries
+- **11 inspection tools** — tables, schemas, indexes, foreign keys, statistics, views, stored procedures, execution plans, column search
+- **Flexible output** — query results as Markdown, CSV, or JSON
+- **Semantic dictionary** — Claude auto-accumulates business-term → schema mappings per database and reloads them each session
+- **Connection pooling** — thread-safe pool with dead-connection detection and automatic reconnect
+- **Web manager UI** — add, edit, test, and register database connections without touching JSON
 
----
+## Table of Contents
 
-## Semantic Dictionary
-
-Every business database has an internal vocabulary that can't be inferred from the schema alone: `anagra` means nothing on its own, but `customers` does. The semantic dictionary is a Markdown file where Claude accumulates this knowledge as it chats with you — no manual documentation required.
-
-### How it works
-
-1. You ask: *"how many sales did Mario Rossi make?"*
-2. Claude explores the schema, discovers that `Mario Rossi` is stored in `anagra.cognome + nome`
-3. Claude saves this discovery to the dictionary (in the background, no confirmation required)
-4. Claude replies: *"I saved to the dictionary that 'customer by name' maps to fields `cognome, nome` in table `anagra`"*
-5. Next sessions: Claude loads `db://dictionary` at startup and starts already informed
-
-### File format
-
-```markdown
-# Semantic Dictionary
-> Automatically updated by Claude. Can be edited manually.
-
-## Business Entities
-| User term | Table | Key fields | Notes |
-|-----------|-------|------------|-------|
-| customer  | anagra | codice, cognome, nome | |
-| product   | tabArt | codart, descr | |
-
-## Filters and Aliases
-| User expression | SQL equivalent | Notes |
-|-----------------|----------------|-------|
-| "active"        | stato = 'A' | |
-| "current year"  | YEAR(data_doc) = YEAR(GETDATE()) | |
-
-## Notable Relationships
-| From table | Field | To table | Field | Description |
-|------------|-------|----------|-------|-------------|
-| anagra | codice | ordini | codcli | customers and their orders |
-```
-
-### Configuration
-
-Add `--dictionary-file` to the MCP server args (recommended: absolute path):
-
-```json
-"args": [
-  "-m", "mcp_sqlserver.server",
-  "--connection-string", "...",
-  "--dictionary-file", "C:\\dictionaries\\sales_dictionary.md"
-]
-```
-
-In a multi-server setup, each server has its own dictionary file — different domains, different vocabularies.
-
-### Editor in Manager UI
-
-Each server card in the Manager has a **📖** button that opens a modal editor to view and edit the dictionary manually (useful for corrections or copying sections between databases).
-
-> Full documentation: [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md)
-
----
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Tools](#tools)
+- [Resources](#resources)
+- [Semantic Dictionary](#semantic-dictionary)
+- [SQL MCP Manager](#sql-mcp-manager)
+- [Security](#security)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.10 or higher
-- SQL Server (any version)
-- ODBC Driver 17+ for SQL Server
-- Claude Desktop or Claude Code
+| Requirement | Notes |
+|---|---|
+| Python 3.10+ | |
+| SQL Server | Any recent version, on-prem or Azure SQL |
+| ODBC Driver 17+ | [Download from Microsoft](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server) |
+| Claude Desktop or Claude Code | |
 
-### Installation
+### Install
 
-**Option 1: Automated Setup (Recommended)**
-
-**Windows:**
 ```bash
 git clone https://github.com/Attilio81/MCP-Sql-Server.git
 cd MCP-Sql-Server
-setup.bat
 ```
 
-**Linux/macOS:**
-```bash
-git clone https://github.com/Attilio81/MCP-Sql-Server.git
-cd MCP-Sql-Server
-chmod +x setup.sh
-./setup.sh
-```
+**Windows:** run `setup.bat` &nbsp;·&nbsp; **Linux/macOS:** run `./setup.sh`
 
-**Option 2: Manual Setup**
+Or manually:
 
 ```bash
-# Clone repository
-git clone https://github.com/Attilio81/MCP-Sql-Server.git
-cd MCP-Sql-Server
-
-# Install package
 pip install -e .
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your credentials
-
-# Test connection
-python test_connection.py
+python test_connection.py   # verifies driver, connection, and MCP install
 ```
 
-### ODBC Driver Installation
-
 <details>
-<summary><b>Windows</b></summary>
+<summary><b>ODBC driver installation (Linux / macOS)</b></summary>
 
-Download from [Microsoft](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server)
-
-Or via Chocolatey:
-```powershell
-choco install sqlserver-odbcdriver
-```
-</details>
-
-<details>
-<summary><b>Linux (Ubuntu/Debian)</b></summary>
-
+**Ubuntu/Debian:**
 ```bash
 curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
 curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
 sudo apt-get update
 sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
 ```
-</details>
 
-<details>
-<summary><b>macOS</b></summary>
-
+**macOS:**
 ```bash
 brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
-brew update
-brew install msodbcsql17
+brew update && brew install msodbcsql17
 ```
 </details>
 
 ## Configuration
 
-All parameters are passed as **command-line arguments** directly in the Claude config file — no `.env` file required. CLI arguments take precedence over environment variables and `.env`.
+All parameters are passed as command-line arguments in the Claude config — no `.env` needed. CLI arguments take precedence over environment variables.
 
-### Claude Desktop Configuration
+### Claude Desktop
 
-Edit `claude_desktop_config.json`:
-
-| Platform | Path |
-|---|---|
-| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
-| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Linux | `~/.config/Claude/claude_desktop_config.json` |
+Edit `claude_desktop_config.json` (`%APPDATA%\Claude\` on Windows, `~/Library/Application Support/Claude/` on macOS, `~/.config/Claude/` on Linux):
 
 ```json
 {
@@ -242,14 +96,10 @@ Edit `claude_desktop_config.json`:
       "command": "python",
       "args": [
         "-m", "mcp_sqlserver.server",
-        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;UID=user;PWD=password",
+        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes",
         "--max-rows", "100",
-        "--query-timeout", "30",
-        "--pool-size", "5",
-        "--pool-timeout", "30",
-        "--blacklist-tables", "sys_*,*_audit,*_temp",
         "--allowed-schemas", "dbo",
-        "--log-level", "INFO"
+        "--blacklist-tables", "sys_*,*_audit,*_temp"
       ]
     }
   }
@@ -258,616 +108,222 @@ Edit `claude_desktop_config.json`:
 
 Restart Claude Desktop after editing.
 
-#### Windows Trusted Authentication (no password)
+### Claude Code
 
-```json
-"--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
+```bash
+claude mcp add mydb --scope user -- python -m mcp_sqlserver.server \
+  --connection-string "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
 ```
 
-#### Azure SQL
-
-```json
-"--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER.database.windows.net;Database=YOUR_DB;Authentication=ActiveDirectoryInteractive"
-```
+> Claude Desktop and Claude Code use **separate configuration stores**. The [Manager UI](#sql-mcp-manager) writes the Desktop config and can register servers on Claude Code with one click (the **CC** button). Details in [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md).
 
 ### Multiple Databases
 
-Define one MCP server entry per database — Claude will have all of them available simultaneously and will route queries to the right one based on the server name or your instructions:
+Define one server entry per database — Claude sees them all and routes by name:
 
 ```json
 {
   "mcpServers": {
-    "db-vendite": {
-      "command": "python",
-      "args": [
-        "-m", "mcp_sqlserver.server",
-        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=srv1;Database=Vendite;Trusted_Connection=yes",
-        "--allowed-schemas", "dbo",
-        "--max-rows", "100"
-      ]
-    },
-    "db-magazzino": {
-      "command": "python",
-      "args": [
-        "-m", "mcp_sqlserver.server",
-        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=srv2;Database=Magazzino;UID=user;PWD=password",
-        "--allowed-schemas", "dbo,wms"
-      ]
-    },
-    "db-contabilita": {
-      "command": "python",
-      "args": [
-        "-m", "mcp_sqlserver.server",
-        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=srv1;Database=Contabilita;Trusted_Connection=yes",
-        "--blacklist-tables", "*_audit,sys_*"
-      ]
-    }
+    "db-sales":     { "command": "python", "args": ["-m", "mcp_sqlserver.server", "--connection-string", "...Database=Sales..."] },
+    "db-warehouse": { "command": "python", "args": ["-m", "mcp_sqlserver.server", "--connection-string", "...Database=Warehouse..."] }
   }
 }
 ```
 
-In the chat you can then ask:
-> *"On the **Magazzino** database, show me all tables"*
-> *"On the **Vendite** database, how many orders were placed in 2026?"*
+> *"On the **warehouse** database, show me the Stock table"*
 
-### Claude Code Configuration
+### Parameters
 
-Claude Code stores MCP servers separately from Claude Desktop. There are two approaches:
-
-**Option A — Via Manager (recommended):** Add the server in the Manager, then click **CC** on the card. This runs `claude mcp add --scope user` and registers it globally for all Claude Code sessions.
-
-**Option B — CLI:**
-```bash
-claude mcp add mydb --scope user -- python -m mcp_sqlserver.server \
-  --connection-string "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes" \
-  --max-rows 100
-
-# Verify
-claude mcp list
-```
-
-**Option C — Per-project `.claude/mcp.json`:**
-```json
-{
-  "mcpServers": {
-    "sqlserver": {
-      "command": "python",
-      "args": [
-        "-m", "mcp_sqlserver.server",
-        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
-      ]
-    }
-  }
-}
-```
-
-> The Manager reads/writes **only** `claude_desktop_config.json`. Servers registered via `claude mcp add --scope user` (or the CC button) live in Claude Code's own store and are **not** visible in the Manager unless also added there.
-
-See [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md) for full details.
-
-### All Available Parameters
-
-| CLI Argument | Env Variable | Default | Description |
+| CLI argument | Env variable | Default | Description |
 |---|---|---|---|
 | `--connection-string` | `SQL_CONNECTION_STRING` | *(required)* | ODBC connection string |
-| `--max-rows` | `MAX_ROWS` | `100` | Max rows returned per query |
-| `--query-timeout` | `QUERY_TIMEOUT` | `30` | Query timeout in seconds |
+| `--max-rows` | `MAX_ROWS` | `100` | Max rows per query (a `TOP` clause is injected if missing) |
+| `--query-timeout` | `QUERY_TIMEOUT` | `30` | Query timeout, seconds |
 | `--pool-size` | `POOL_SIZE` | `5` | Connection pool size |
-| `--pool-timeout` | `POOL_TIMEOUT` | `30` | Pool acquisition timeout (s) |
-| `--blacklist-tables` | `BLACKLIST_TABLES` | *(none)* | Comma-separated patterns, wildcards ok |
+| `--pool-timeout` | `POOL_TIMEOUT` | `30` | Pool acquisition timeout, seconds |
+| `--blacklist-tables` | `BLACKLIST_TABLES` | *(none)* | Comma-separated deny patterns, wildcards supported |
 | `--allowed-schemas` | `ALLOWED_SCHEMAS` | *(all)* | Comma-separated schema whitelist |
-| `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
-| `--dictionary-file` | `DICTIONARY_FILE` | `semantic_dictionary.md` | Path to the semantic dictionary file (recommended: absolute path) |
+| `--dictionary-file` | `DICTIONARY_FILE` | `semantic_dictionary.md` | Semantic dictionary path (absolute recommended) |
+| `--log-level` | `LOG_LEVEL` | `INFO` | `DEBUG` · `INFO` · `WARNING` · `ERROR` · `CRITICAL` |
 
-## Usage
+**Connection string variants:**
 
-You **never need to pass credentials or connection strings in the chat**. The connection is configured once in the config file and is transparent in every conversation.
+```text
+# Windows integrated authentication
+Driver={ODBC Driver 17 for SQL Server};Server=SRV;Database=DB;Trusted_Connection=yes
 
-### Example Chat Session
+# SQL authentication
+Driver={ODBC Driver 17 for SQL Server};Server=SRV;Database=DB;UID=user;PWD=password
 
-**You:** *Show me all the tables in the database*
-
-**Claude:** *(calls `list_tables`)* 
-```
-# Database Tables — 12 found
-
-## Schema: dbo
-- **Customers** (15,432 rows, 2.14 MB)
-- **Orders** (98,201 rows, 8.77 MB)
-- **Products** (1,203 rows, 0.43 MB)
-- ~~audit_trail~~ 🔒 matches blacklist pattern *_trail
+# Azure SQL with Entra ID
+Driver={ODBC Driver 17 for SQL Server};Server=srv.database.windows.net;Database=DB;Authentication=ActiveDirectoryInteractive
 ```
 
----
+## Tools
 
-**You:** *Describe the Orders table with 5 sample rows*
+| Tool | Purpose | Key parameters |
+|---|---|---|
+| `list_tables` | All accessible tables with row counts | `schema_filter` |
+| `describe_table` | Columns, types, constraints + sample rows | `table_name`, `sample_rows` (≤50) |
+| `execute_query` | Validated `SELECT` with row cap and timeout | `query`, `format` (`markdown`/`csv`/`json`) |
+| `explain_query` | Estimated execution plan — query is **not** executed | `query` |
+| `get_table_relationships` | Foreign keys to and from a table | `table_name` |
+| `get_table_indexes` | Indexes: type, columns, uniqueness, fill factor | `table_name` |
+| `search_columns` | Find columns by name across the database | `column_pattern` (wildcards), `schema_filter` |
+| `get_table_statistics` | Per-column stats: distinct, NULLs, min/max | `table_name` |
+| `get_views` | Views with optional SQL definition | `schema_filter`, `include_definition` |
+| `get_procedures` | Stored procedures with optional SQL definition | `schema_filter`, `name_filter`, `include_definition` |
+| `update_dictionary` | Persist a semantic discovery (called by Claude) | `section`, `key`, `row` |
 
-**Claude:** *(calls `describe_table`)* 
-```
-# Schema: dbo.Orders
+Notes:
 
-| Column      | Type          | Nullable | Key |
-|-------------|---------------|----------|-----|
-| OrderID     | int(10)       | NO       | PK  |
-| CustomerID  | int(10)       | NO       |     |
-| OrderDate   | datetime      | NO       |     |
-| TotalAmount | decimal(18,2) | YES      |     |
-```
+- `execute_query` injects `TOP {max_rows}` when missing and runs under `READ COMMITTED` isolation. `format: csv` / `json` return untruncated values — use them for real data extraction; the default Markdown table truncates long values for readability.
+- `explain_query` uses `SET SHOWPLAN_ALL`: SQL Server returns the optimizer's plan (operations, estimated rows, subtree cost) without touching data. Useful to diagnose slow queries and verify index usage.
+- `get_procedures` defaults to `include_definition: false`; combine with `name_filter` (e.g. `sp_orders*`) to fetch specific definitions without flooding the context.
+- Every tool enforces the blacklist and schema whitelist — including tables referenced inside free-form queries via `FROM`, `JOIN`, `APPLY`, comma-joins, and subqueries.
 
----
+### Example Session
 
-**You:** *How many orders per month in 2026?*
+> **You:** *Show me all the tables* — Claude calls `list_tables`
+>
+> **You:** *Why is this report slow?* — Claude calls `explain_query`, spots a table scan, suggests an index
+>
+> **You:** *Export all 2026 orders as CSV* — Claude calls `execute_query` with `format: "csv"`
+>
+> **You:** *Run: `SELECT * FROM users; DROP TABLE Orders--`*
+>
+> **Claude:** 🔒 Query not valid: **stacked statements (semicolons) are not allowed**
 
-**Claude:** *(calls `execute_query`)* 
-```sql
-SELECT TOP 100 MONTH(OrderDate) AS Month, COUNT(*) AS Orders
-FROM dbo.Orders
-WHERE YEAR(OrderDate) = 2026
-GROUP BY MONTH(OrderDate)
-ORDER BY Month
-```
-| Month | Orders |
-|-------|--------|
-| 1     | 1,203  |
-| 2     | 987    |
-| 3     | 1,456  |
+## Resources
 
----
+MCP Resources provide read-only context that clients load automatically:
 
-**You:** *Run: SELECT * FROM users; DROP TABLE Orders--*
+| URI | Content |
+|---|---|
+| `db://schema/overview` | Full schema: all tables, columns, types, primary keys |
+| `db://schema/tables/{table_name}` | Detailed schema for one table |
+| `db://dictionary` | Semantic dictionary, auto-loaded at session start |
 
-**Claude:** 🔒 Query not valid: **Stacked statements (semicolons) are not allowed**
+## Semantic Dictionary
 
----
+Every business database has a vocabulary the schema alone can't reveal: `anagra` means nothing, *customers* does. The semantic dictionary is a per-database Markdown file where Claude accumulates this knowledge as you work — no manual documentation required.
 
-### With Multiple Databases
+**The loop:**
 
-When multiple servers are configured, address them by name:
+1. You ask a business question ("how many sales did Mario Rossi make?")
+2. Claude explores the schema and finds the answer
+3. Claude saves the non-obvious mapping via `update_dictionary` and tells you it did
+4. Next session, `db://dictionary` is loaded automatically — Claude starts already informed
 
-- *"On the **db-vendite** database, show me all tables"*
-- *"On **db-magazzino**, describe the Stock table"*
-- *"Compare orders between **db-vendite** and **db-contabilita**"*
+The file has three sections — business entities (term → table), filter aliases ("active" → `stato = 'A'`), and notable join relationships. It is plain Markdown: edit it by hand or through the Manager's 📖 editor whenever you want.
 
-### With Claude Code
+In multi-database setups give each server its own `--dictionary-file` — different domains, different vocabularies.
 
-```bash
-# Start Claude Code in your project directory
-cd your-project
-claude
+> Full guide: [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md)
 
-# Then ask naturally:
-"List all tables in the database"
-"Analyze the Users table and generate a SQLAlchemy model"
-"Find all orders from 2026 and summarize them by customer"
-```
+## SQL MCP Manager
 
-### Available Tools
+A local web UI to manage all your SQL Server MCP connections from one page.
 
-#### `list_tables`
-
-Lists all accessible tables with metrics.
-
-**Parameters:**
-- `schema_filter` (optional): Filter by specific schema
-
-**Example:**
-```
-List all tables in the sales schema
+```bat
+start-manager.bat        # Windows — or: python -m manager.server
 ```
 
-#### `describe_table`
+Then open <http://localhost:8090>. Requires `pip install -e ".[manager]"` (done by `setup.bat`).
 
-Shows complete table schema with optional sample data.
-
-**Parameters:**
-- `table_name` (required): Table name (format: `schema.table` or `table`)
-- `sample_rows` (optional): Number of sample rows (default: 10, max: 50)
-
-**Example:**
-```
-Describe the dbo.Users table with 5 sample rows
-```
-
-#### `execute_query`
-
-Executes SELECT queries with safety checks.
-
-**Parameters:**
-- `query` (required): SQL SELECT query
-
-**Example:**
-```
-Execute: SELECT TOP 20 * FROM Products WHERE Price > 100
-```
-
-#### `get_table_relationships`
-
-Shows foreign key relationships for a table.
-
-**Parameters:**
-- `table_name` (required): Table name
-
-**Example:**
-```
-Show relationships for OrderDetails table
-```
-
-#### `get_table_indexes`
-
-Shows all indexes on a table with type, columns, uniqueness and fill factor.
-
-**Parameters:**
-- `table_name` (required): Table name (format: `schema.table` or `table`)
-
-**Example:**
-```
-Show indexes for the Orders table
-```
-
-#### `search_columns`
-
-Searches for columns by name across the entire database, with wildcard support.
-
-**Parameters:**
-- `column_pattern` (required): Search pattern (supports `*` and `?` wildcards, e.g. `*email*`, `user_*`)
-- `schema_filter` (optional): Filter by specific schema
-
-**Example:**
-```
-Find all columns containing "email" in their name
-```
-
-#### `get_table_statistics`
-
-Shows per-column statistics: distinct values, NULL count, min/max for numeric and date columns.
-
-**Parameters:**
-- `table_name` (required): Table name (format: `schema.table` or `table`)
-
-**Example:**
-```
-Show statistics for the Customers table
-```
-
-#### `get_views`
-
-Lists all database views with optional SQL definitions.
-
-**Parameters:**
-- `schema_filter` (optional): Filter by specific schema
-- `include_definition` (optional): Include SQL definition (default: true)
-
-**Example:**
-```
-List all views in the dbo schema
-```
-
-#### `update_dictionary`
-
-Saves a semantic mapping to the per-server dictionary file. Called automatically by Claude when it discovers a non-obvious link between business language and database schema — no user action required.
-
-**Parameters:**
-- `section` (required): `"entities"` | `"filters"` | `"relations"`
-- `key` (required): First-column value, used for deduplication
-- `row` (required): Complete Markdown table row
-
-**Claude calls this automatically when it learns:**
-- Which table/columns correspond to a business entity named by the user
-- A recurring filter expression (e.g. "attivo" → `stato = 'A'`)
-- A non-obvious join relationship between tables
-
-### Available Resources
-
-MCP Resources provide read-only context data that clients can retrieve automatically.
-
-#### `db://schema/overview`
-
-Full database schema overview — all accessible tables with columns, types and primary keys.
-
-**Example:**
-```
-Show me the database schema overview
-```
-
-#### `db://schema/tables/{table_name}`
-
-Detailed schema for a single table via URI template.
-
-**Example URI:** `db://schema/tables/dbo.Orders`
-
-#### `db://dictionary`
-
-Semantic dictionary for this database — business language mapped to physical schema. Claude loads this automatically at session start. Returns empty string if no dictionary has been created yet.
-
-See [Dizionario Semantico](#dizionario-semantico) and [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md).
+- **Add / edit / delete** connections stored in `claude_desktop_config.json`, preserving unrelated entries
+- **Test** any connection before saving; on page load every server is probed in parallel (green/red status dots)
+- **CC button** registers a server on Claude Code (`claude mcp add --scope user`) with one click
+- **📖 button** opens the semantic dictionary editor for that database
+- **Auto-detects** the Claude Desktop config path on Windows, macOS, and Linux
 
 ## Security
 
-### Connection String Security
+Defence in depth, applied in order on every query:
 
-**Recommended: Use Windows Authentication (Windows only)**
-```env
-SQL_CONNECTION_STRING=Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=MyDB;Trusted_Connection=yes
-```
+1. **Length cap** (4096 chars) — payload DoS prevention
+2. **Null-byte rejection**
+3. **Unicode normalisation** — full-width lookalikes folded before matching
+4. **SELECT-only enforcement**
+5. **Injection patterns** — semicolons, comments, `UNION`, `EXEC()`, hex/`CHAR()` encoding, timing attacks
+6. **Dangerous keywords** — word-boundary match on DML/DDL/admin commands (`INSERT`…`SHUTDOWN`, `xp_*`)
 
-**Azure SQL with AAD:**
-```env
-SQL_CONNECTION_STRING=Driver={ODBC Driver 17 for SQL Server};Server=myserver.database.windows.net;Database=MyDB;Authentication=ActiveDirectoryInteractive
-```
+Plus table-level enforcement on every tool: identifier format validation, schema whitelist, blacklist wildcards — including tables referenced inside free-form `SELECT`s (`FROM`/`JOIN`/`APPLY`/subqueries).
 
-### Table Blacklist
+**Recommended setup:**
 
-Supports wildcards for pattern matching:
+- Connect with a **dedicated read-only SQL login** (validation is a second line of defence, not a substitute for DB permissions)
+- Prefer **Windows integrated auth** or Entra ID over passwords in config files
+- Whitelist only the schemas Claude needs (`--allowed-schemas dbo`)
+- Blacklist sensitive tables (`--blacklist-tables *_audit,password*`)
 
-```env
-# Block specific tables
-BLACKLIST_TABLES=sys_logs,audit_trail
-
-# Block patterns
-BLACKLIST_TABLES=sys_*,*_temp,internal_*
-
-# Block with schema
-BLACKLIST_TABLES=dbo.sensitive_*,admin.*
-```
-
-### Schema Whitelist
-
-Restrict access to specific schemas (case-insensitive matching):
-
-```env
-# Only allow these schemas
-ALLOWED_SCHEMAS=dbo,sales,hr
-
-# Empty = all schemas allowed
-ALLOWED_SCHEMAS=
-```
-
-### Query Validation
-
-The server automatically blocks:
-- Non-SELECT statements (INSERT, UPDATE, DELETE, DROP, etc.)
-- SQL injection patterns
-- SQL comments (`--`, `/* */`)
-- Dangerous functions (`xp_cmdshell`, `sp_executesql`)
-- System stored procedures
-
-### Best Practices
-
-1. **Never commit credentials** - `.env` is in `.gitignore`
-2. **Use least privilege** - Create a dedicated read-only SQL user
-3. **Enable logging** - Set `LOG_LEVEL=INFO` or `DEBUG` for monitoring
-4. **Set appropriate limits** - Configure `MAX_ROWS` and `QUERY_TIMEOUT`
-5. **Use schema whitelist** - Restrict access to specific schemas only
-
-See [SECURITY.md](SECURITY.md) for detailed security guidelines.
-
-## Architecture
-
-### Connection Pooling
-
-- Maintains a pool of reusable database connections
-- Configurable size: `POOL_SIZE` (default: 5)
-- Automatic reconnection for dead connections
-- Automatic transaction rollback on release
-
-### Security Validator
-
-Multi-layered query validation (applied in order):
-1. **Length cap**: Rejects queries exceeding 4096 characters (DoS prevention)
-2. **Null-byte rejection**: Blocks null bytes before normalisation
-3. **Unicode / whitespace normalisation**: Collapses whitespace, replaces full-width lookalike characters
-4. **SELECT-only enforcement**: Only SELECT statements are allowed
-5. **Injection pattern detection**: Regex-based detection of semicolons, comments, UNION, EXEC(), encoding tricks, timing attacks, etc.
-6. **Dangerous keyword check**: Word-boundary match against DML/DDL/admin keywords
-
-Additional layers for table access:
-- **Blacklist matching**: Pattern-based table filtering with wildcards
-- **Schema whitelist**: Case-insensitive schema restriction
-- **Identifier validation**: Regex validation of table/schema names to prevent injection
-
-### Error Handling
-
-Stratified error management:
-- `TimeoutError`: Pool exhausted or slow queries
-- `pyodbc.Error`: Database-specific errors (connection, syntax, permissions)
-- `Exception`: Generic fallback with full stack trace logging
-
-All connection pool errors are now logged with specific exception types (no silent failures).
-Query timeout is enforced at the cursor level via `cursor.timeout`.
-
-## Testing
-
-### Connection Test
-
-```bash
-python test_connection.py
-```
-
-Runs 6 automated tests:
-1. pyodbc installation check
-2. ODBC driver verification
-3. Connection string validation
-4. Database connection test
-5. Basic query execution
-6. MCP package verification
-
-### Manual Testing
-
-```bash
-# Test server startup (should wait for stdin)
-python -m mcp_sqlserver.server
-
-# Test with MCP Inspector (requires Node.js)
-npx @modelcontextprotocol/inspector python -m mcp_sqlserver.server
-```
-
-## Troubleshooting
-
-### "Data source name not found"
-
-**Solution:** Verify ODBC driver is installed:
-```bash
-python -c "import pyodbc; print(pyodbc.drivers())"
-```
-
-Update connection string with correct driver name (e.g., `ODBC Driver 18 for SQL Server`).
-
-### "Timeout acquiring connection from pool"
-
-**Solution:** Increase pool settings in `.env`:
-```env
-POOL_SIZE=10
-POOL_TIMEOUT=60
-```
-
-### "Access denied: Schema 'xyz' not authorized"
-
-**Solution:** Add schema to whitelist:
-```env
-ALLOWED_SCHEMAS=dbo,xyz
-```
-
-### Enable Debug Logging
-
-For detailed troubleshooting:
-```env
-LOG_LEVEL=DEBUG
-```
-
-View logs in Claude Desktop: **Help → Show Logs**
+Details and threat model: [SECURITY.md](SECURITY.md)
 
 ## Development
 
-### Project Structure
-
 ```
-mcp-sqlserver/
-├── src/mcp_sqlserver/
-│   ├── __init__.py
-│   ├── server.py          # MCP app setup, tool routing, entry point
-│   ├── config.py          # CLI args, env vars, global settings
-│   ├── security.py        # SecurityValidator, dangerous keywords & patterns
-│   ├── pool.py            # ConnectionPool with auto-reconnection
-│   ├── helpers.py         # Output formatting (Markdown tables)
-│   ├── resources.py       # MCP Resources (schema overview, table schema, dictionary)
-│   └── tools/
-│       ├── __init__.py    # Re-exports all tool handlers
-│       ├── list_tables.py
-│       ├── describe_table.py
-│       ├── execute_query.py
-│       ├── relationships.py
-│       ├── indexes.py
-│       ├── search_columns.py
-│       ├── statistics.py
-│       ├── views.py
-│       └── dictionary.py  # update_dictionary tool + _upsert_row
-├── manager/               # SQL MCP Manager — local web UI
-│   ├── __init__.py
-│   ├── server.py          # FastAPI app: API routes + serve index.html
-│   ├── config_manager.py  # Read/write claude_desktop_config.json (atomic)
-│   ├── connection_tester.py  # Test a connection string via pyodbc
-│   └── static/
-│       └── index.html     # Single-page app (vanilla HTML/CSS/JS)
-├── tests/
-│   ├── test_security_validator.py   # Unit tests for SecurityValidator & helpers
-│   ├── test_config_manager.py       # Unit tests for config_manager
-│   ├── test_connection_tester.py    # Unit tests for connection_tester
-│   ├── test_api.py                  # API tests via FastAPI TestClient
-│   └── test_dictionary.py           # Unit tests for dictionary tool (no DB required)
-├── .env.example           # Environment template
-├── pyproject.toml         # Package configuration
-├── README.md              # This file
-├── CLAUDE_CODE_USAGE.md   # Claude Code integration guide
-├── SECURITY.md            # Security best practices
-├── CONTRIBUTING.md        # Contribution guidelines
-├── LICENSE                # MIT License
-└── test_connection.py     # Connection test script
+src/mcp_sqlserver/       # the MCP server
+├── server.py            # MCP app, tool registration and dispatch, entry point
+├── config.py            # CLI args + env vars
+├── security.py          # SecurityValidator: query validation, table extraction, access rules
+├── pool.py              # thread-safe connection pool with auto-reconnect
+├── helpers.py           # Markdown / CSV / JSON result formatting
+├── resources.py         # MCP Resources
+└── tools/               # one module per tool handler
+manager/                 # FastAPI web UI (config manager + connection tester)
+tests/                   # unit tests, no database required
 ```
-
-### Running Tests
 
 ```bash
-# Install dev dependencies
 pip install -e ".[dev,manager]"
-
-# Run all unit tests (no database required)
-pytest tests/ -v
-```
-
-The unit test suite covers:
-- `test_security_validator.py` — table access validation, query injection patterns, SQL helpers
-- `test_config_manager.py` — config read/write/parse, atomic writes, multi-platform paths
-- `test_connection_tester.py` — pyodbc connection test (mocked)
-- `test_api.py` — all FastAPI endpoints via TestClient (mocked config_manager)
-
-### Code Quality
-
-```bash
-# Linting
-pip install ruff
+pytest tests/ -v          # 68+ unit tests, no DB needed
 ruff check src/
-
-# Formatting
-ruff format src/
 ```
 
-## Contributing
+All security logic is covered by unit tests (`tests/test_security_validator.py`). Integration testing requires a real SQL Server — use `python test_connection.py`.
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### Development Setup
+## Troubleshooting
 
+<details>
+<summary><b>"Data source name not found"</b></summary>
+
+The ODBC driver is missing or the name in the connection string doesn't match. List installed drivers:
 ```bash
-# Clone repository
-git clone https://github.com/Attilio81/MCP-Sql-Server.git
-cd MCP-Sql-Server
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate     # Windows
-
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
-
-# Install pre-commit hooks
-pre-commit install
+python -c "import pyodbc; print(pyodbc.drivers())"
 ```
+</details>
+
+<details>
+<summary><b>"Timeout acquiring connection from pool"</b></summary>
+
+Increase `--pool-size` / `--pool-timeout`, or check for long-running queries holding connections.
+</details>
+
+<details>
+<summary><b>"Schema 'xyz' is not authorised"</b></summary>
+
+Add the schema to `--allowed-schemas`, or remove the argument to allow all schemas.
+</details>
+
+<details>
+<summary><b>Server not appearing in Claude</b></summary>
+
+Restart Claude Desktop after config changes. For Claude Code run `claude mcp list` to verify registration. Enable `--log-level DEBUG` and check logs (Claude Desktop: **Help → Show Logs**).
+</details>
 
 ## Roadmap
 
-- [ ] PostgreSQL support
-- [ ] MySQL/MariaDB support
-- [ ] Query result caching
-- [ ] Data export (CSV, JSON, Excel)
-- [ ] ER diagram visualization
-- [ ] Query performance statistics
-- [ ] Async query execution
-- [ ] Multi-database support in single server
+- [x] CSV / JSON export
+- [x] Execution plan analysis
+- [x] Stored procedure inspection
+- [ ] Single-server multi-database mode (one process, many connections)
+- [ ] Query audit log
+- [ ] PostgreSQL / MySQL support
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
 
-## Acknowledgments
-
-- Built with [Model Context Protocol](https://modelcontextprotocol.io/)
-- Powered by [pyodbc](https://github.com/mkleehammer/pyodbc)
-- Inspired by the [MCP Servers](https://github.com/modelcontextprotocol/servers) project
-
-## Support
-
-- **Documentation**: See documentation files in this repository
-- **Issues**: [GitHub Issues](https://github.com/Attilio81/MCP-Sql-Server/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Attilio81/MCP-Sql-Server/discussions)
-
-## Related Projects
-
-- [MCP Specification](https://spec.modelcontextprotocol.io/)
-- [Claude Desktop](https://claude.ai/download)
-- [Claude Code](https://docs.anthropic.com/claude/docs/claude-code)
-
----
-
-Made with ❤️ for the Claude community
+Built with the [Model Context Protocol](https://modelcontextprotocol.io/) and [pyodbc](https://github.com/mkleehammer/pyodbc).
