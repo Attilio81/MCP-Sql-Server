@@ -141,6 +141,57 @@ class SecurityValidator:
 
         return True, ""
 
+    # Tokens that terminate a FROM clause (comma-join tracking)
+    _FROM_CLAUSE_END = {"WHERE", "GROUP", "ORDER", "HAVING", "OPTION"}
+    # Tokens that may precede JOIN or otherwise never name a table
+    _NON_TABLE_KEYWORDS = _FROM_CLAUSE_END | {
+        "SELECT", "ON", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "AS",
+    }
+    _SQL_STRING_RE = re.compile(r"'[^']*'")
+    _SQL_TOKEN_RE = re.compile(r"[A-Z_][A-Z0-9_.]*|[(),]")
+
+    @classmethod
+    def extract_table_names(cls, query: str) -> list[str]:
+        """
+        Extract table references from FROM / JOIN clauses of a SELECT,
+        including old-style comma joins (FROM a, b) and subqueries.
+        Assumes the query already passed validate_query (no comments,
+        no stacked statements). Returned names keep schema qualification.
+        """
+        text = cls._normalize(query)
+        text = text.replace('[', '').replace(']', '')
+        text = cls._SQL_STRING_RE.sub("''", text)  # ignore string literals
+        tokens = cls._SQL_TOKEN_RE.findall(text)
+
+        tables: list[str] = []
+        expect_table = False
+        depth = 0
+        from_depths: set[int] = set()  # paren depths with an open FROM clause
+
+        for tok in tokens:
+            if tok == '(':
+                depth += 1
+                expect_table = False
+            elif tok == ')':
+                depth -= 1
+                from_depths = {d for d in from_depths if d <= depth}
+            elif tok == ',':
+                # Comma join: next identifier is another table
+                expect_table = depth in from_depths
+            elif tok in ("FROM", "JOIN", "APPLY"):
+                expect_table = True
+                if tok == "FROM":
+                    from_depths.add(depth)
+            elif tok in cls._NON_TABLE_KEYWORDS:
+                if tok in cls._FROM_CLAUSE_END:
+                    from_depths.discard(depth)
+                expect_table = False
+            elif expect_table:
+                tables.append(tok)
+                expect_table = False
+
+        return tables
+
     @classmethod
     def validate_query(cls, query: str) -> tuple[bool, str]:
         """

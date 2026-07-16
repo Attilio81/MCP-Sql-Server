@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 # Import after path setup — the module no longer calls _parse_args() at import time
 from mcp_sqlserver.security import SecurityValidator  # noqa: E402
 from mcp_sqlserver.helpers import format_table_data  # noqa: E402
+from mcp_sqlserver.tools.execute_query import ensure_top  # noqa: E402
 
 
 class TestSecurityValidatorTableAllowed(unittest.TestCase):
@@ -163,6 +164,117 @@ class TestSecurityValidatorQuery(unittest.TestCase):
     def test_valid_where_clause(self):
         ok, msg = SecurityValidator.validate_query("SELECT Name FROM Users WHERE Id = 1")
         self.assertTrue(ok, msg)
+
+
+class TestExtractTableNames(unittest.TestCase):
+    """Tests for SecurityValidator.extract_table_names"""
+
+    def test_simple_from(self):
+        self.assertEqual(SecurityValidator.extract_table_names("SELECT * FROM Users"), ["USERS"])
+
+    def test_schema_qualified(self):
+        self.assertEqual(SecurityValidator.extract_table_names("SELECT * FROM dbo.Users"), ["DBO.USERS"])
+
+    def test_bracket_quoted(self):
+        self.assertEqual(SecurityValidator.extract_table_names("SELECT * FROM [dbo].[Users]"), ["DBO.USERS"])
+
+    def test_join(self):
+        tables = SecurityValidator.extract_table_names(
+            "SELECT * FROM Orders o INNER JOIN Customers c ON o.CustId = c.Id"
+        )
+        self.assertEqual(tables, ["ORDERS", "CUSTOMERS"])
+
+    def test_comma_join(self):
+        tables = SecurityValidator.extract_table_names("SELECT * FROM Orders o, Customers c WHERE o.CustId = c.Id")
+        self.assertEqual(tables, ["ORDERS", "CUSTOMERS"])
+
+    def test_subquery(self):
+        tables = SecurityValidator.extract_table_names(
+            "SELECT * FROM (SELECT Id FROM Secrets) s JOIN Users u ON u.Id = s.Id"
+        )
+        self.assertIn("SECRETS", tables)
+        self.assertIn("USERS", tables)
+
+    def test_comma_join_after_derived_table(self):
+        tables = SecurityValidator.extract_table_names("SELECT * FROM (SELECT 1 AS c) x, Secrets")
+        self.assertIn("SECRETS", tables)
+
+    def test_cross_apply(self):
+        tables = SecurityValidator.extract_table_names("SELECT * FROM Users u CROSS APPLY Secrets s")
+        self.assertEqual(tables, ["USERS", "SECRETS"])
+
+    def test_in_subquery(self):
+        tables = SecurityValidator.extract_table_names(
+            "SELECT * FROM Users WHERE Id IN (SELECT UserId FROM Secrets)"
+        )
+        self.assertIn("SECRETS", tables)
+
+    def test_string_literal_ignored(self):
+        tables = SecurityValidator.extract_table_names("SELECT * FROM Users WHERE Name = 'from secrets'")
+        self.assertEqual(tables, ["USERS"])
+
+    def test_select_list_commas_not_tables(self):
+        tables = SecurityValidator.extract_table_names("SELECT a, b, c FROM Users")
+        self.assertEqual(tables, ["USERS"])
+
+
+class TestExecuteQueryBlacklist(unittest.TestCase):
+    """execute_query must enforce blacklist on tables referenced in free-form SELECTs."""
+
+    def setUp(self):
+        import mcp_sqlserver.config as mod
+        self._orig_blacklist = mod.BLACKLIST_TABLES
+        mod.BLACKLIST_TABLES = ["secrets"]
+
+    def tearDown(self):
+        import mcp_sqlserver.config as mod
+        mod.BLACKLIST_TABLES = self._orig_blacklist
+
+    def _blocked(self, query):
+        for table in SecurityValidator.extract_table_names(query):
+            allowed, _ = SecurityValidator.is_table_allowed(table)
+            if not allowed:
+                return True
+        return False
+
+    def test_direct_select_blocked(self):
+        self.assertTrue(self._blocked("SELECT * FROM Secrets"))
+
+    def test_join_blocked(self):
+        self.assertTrue(self._blocked("SELECT * FROM Users u JOIN Secrets s ON u.Id = s.UserId"))
+
+    def test_comma_join_blocked(self):
+        self.assertTrue(self._blocked("SELECT * FROM Users, Secrets"))
+
+    def test_subquery_blocked(self):
+        self.assertTrue(self._blocked("SELECT * FROM Users WHERE Id IN (SELECT UserId FROM Secrets)"))
+
+    def test_allowed_table_passes(self):
+        self.assertFalse(self._blocked("SELECT * FROM Users"))
+
+
+class TestEnsureTop(unittest.TestCase):
+    """Tests for ensure_top row-limit injection."""
+
+    def test_adds_top(self):
+        self.assertEqual(ensure_top("SELECT * FROM Users", 100), "SELECT TOP 100 * FROM Users")
+
+    def test_respects_distinct(self):
+        self.assertEqual(ensure_top("SELECT DISTINCT Name FROM Users", 100),
+                         "SELECT DISTINCT TOP 100 Name FROM Users")
+
+    def test_existing_top_untouched(self):
+        q = "SELECT TOP 5 * FROM Users"
+        self.assertEqual(ensure_top(q, 100), q)
+
+    def test_existing_top_paren_untouched(self):
+        q = "SELECT TOP(5) * FROM Users"
+        self.assertEqual(ensure_top(q, 100), q)
+
+    def test_topic_column_does_not_skip_limit(self):
+        """Regression: substring match on 'TOP' skipped the limit for columns like Topic."""
+        result = ensure_top("SELECT Topic FROM Posts", 100)
+        self.assertEqual(result, "SELECT TOP 100 Topic FROM Posts")
 
 
 class TestFormatTableData(unittest.TestCase):

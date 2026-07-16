@@ -14,6 +14,20 @@ from mcp_sqlserver.helpers import format_table_data
 logger = logging.getLogger(__name__)
 
 
+def ensure_top(query: str, max_rows: int) -> str:
+    """Add a TOP clause after SELECT if the query has none."""
+    if re.search(r'\bTOP\b', query, re.IGNORECASE):
+        return query
+    # Insert TOP after SELECT, respecting DISTINCT / ALL keywords
+    return re.sub(
+        r'^SELECT\s+(DISTINCT\s+|ALL\s+)?',
+        lambda m: f'SELECT {(m.group(1) or "").strip()} TOP {max_rows} '.replace("  ", " "),
+        query,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
 async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
     """Handle execute_query tool"""
     query = arguments["query"].strip()
@@ -23,17 +37,13 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
     if not is_valid:
         return [TextContent(type="text", text=f"🔒 Query non valida: {error_msg}")]
 
-    # Add TOP clause if not present
-    query_upper = query.upper()
-    if "TOP" not in query_upper and "TOP(" not in query_upper:
-        # Insert TOP after SELECT, respecting DISTINCT / ALL keywords
-        query = re.sub(
-            r'^SELECT\s+(DISTINCT\s+|ALL\s+)?',
-            lambda m: f'SELECT {(m.group(1) or "").strip()} TOP {config.MAX_ROWS} '.replace("  ", " "),
-            query,
-            count=1,
-            flags=re.IGNORECASE,
-        )
+    # Enforce blacklist / schema whitelist on every table referenced in the query
+    for table in SecurityValidator.extract_table_names(query):
+        allowed, error_msg = SecurityValidator.is_table_allowed(table)
+        if not allowed:
+            return [TextContent(type="text", text=f"🔒 Query non valida: {error_msg}")]
+
+    query = ensure_top(query, config.MAX_ROWS)
 
     with pool.get_connection() as conn:
         conn.timeout = config.QUERY_TIMEOUT
