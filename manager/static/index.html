@@ -153,6 +153,19 @@
   .icon:hover { color: var(--ink); border-color: var(--line); }
   .icon.del:hover { color: var(--err); }
 
+  .filter-row { margin-bottom: 12px; }
+  #filter {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--ink);
+    padding: 8px 12px;
+    font: 13px var(--mono);
+  }
+  #filter:focus { border-color: var(--copper-dim); outline: none; }
+  #filter::placeholder { color: var(--faint); }
+
   .empty {
     border: 1px dashed var(--line);
     border-radius: 8px;
@@ -247,6 +260,9 @@
     </div>
   </header>
 
+  <div class="filter-row">
+    <input id="filter" type="search" placeholder="filtra per nome, server o database…" autocomplete="off">
+  </div>
   <div class="list" id="list"></div>
 </div>
 
@@ -370,12 +386,15 @@ function render() {
       <div class="meta"><span>${meta}</span></div>
       <div class="tools">
         <button class="icon" title="Prova connessione" data-act="test" data-i="${i}">⚡</button>
+        <button class="icon" title="Copia connection string" data-act="copy" data-i="${i}">📋</button>
+        <button class="icon" title="Duplica" data-act="dup" data-i="${i}">⧉</button>
         <button class="icon" title="Dizionario semantico" data-act="dict" data-i="${i}">📖</button>
         <button class="icon" title="Modifica" data-act="edit" data-i="${i}">✏️</button>
         <button class="icon del" title="Elimina" data-act="del" data-i="${i}">🗑</button>
       </div>
     </div>`;
   }).join("");
+  $("filter").dispatchEvent(new Event("input")); // keep active filter after re-render
 }
 
 list.addEventListener("click", e => {
@@ -384,7 +403,8 @@ list.addEventListener("click", e => {
   const s = servers[+btn.dataset.i];
   if (!s) return;
   ({ test: () => testCard(s.name), dict: () => openDict(s.name),
-     edit: () => openEdit(s.name), del: () => del(s.name) })[btn.dataset.act]();
+     edit: () => openEdit(s.name), del: () => del(s.name),
+     copy: () => copyConn(s), dup: () => openDup(s) })[btn.dataset.act]();
 });
 
 function setState(name, cls, label) {
@@ -431,6 +451,33 @@ function openAdd() {
   $("form").reset();
   $("f-name").disabled = false;
   $("modal-form").showModal();
+}
+
+async function copyConn(s) {
+  try {
+    await navigator.clipboard.writeText(s.connection_string);
+    toast(`${s.name}: connection string copiata`, "ok");
+  } catch {
+    toast("Copia non riuscita", "err");
+  }
+}
+
+function openDup(s) {
+  editing = null;
+  $("form-title").textContent = "Nuovo database — copia di " + s.name;
+  $("form").reset();
+  $("f-name").disabled = false;
+  $("f-name").value = "";
+  $("f-conn").value = s.connection_string || "";
+  $("f-schemas").value = s.allowed_schemas || "";
+  $("f-blacklist").value = s.blacklist_tables || "";
+  $("f-dict").value = ""; // each database gets its own dictionary
+  $("f-maxrows").value = s.max_rows ?? 100;
+  $("f-qtimeout").value = s.query_timeout ?? 30;
+  $("f-poolsize").value = s.pool_size ?? 5;
+  $("f-pooltimeout").value = s.pool_timeout ?? 30;
+  $("modal-form").showModal();
+  $("f-name").focus();
 }
 
 function openEdit(name) {
@@ -554,6 +601,15 @@ $("btn-cc").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
   }
+});
+
+/* ── filter ──────────────────────────────────────────────── */
+$("filter").addEventListener("input", () => {
+  const q = $("filter").value.trim().toLowerCase();
+  list.querySelectorAll(".card").forEach(card => {
+    const text = (card.dataset.name + " " + card.querySelector(".conn").textContent).toLowerCase();
+    card.style.display = !q || text.includes(q) ? "" : "none";
+  });
 });
 
 $("btn-add").addEventListener("click", openAdd);
