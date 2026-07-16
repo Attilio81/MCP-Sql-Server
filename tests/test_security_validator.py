@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Import after path setup — the module no longer calls _parse_args() at import time
 from mcp_sqlserver.security import SecurityValidator  # noqa: E402
-from mcp_sqlserver.helpers import format_table_data  # noqa: E402
+from mcp_sqlserver.helpers import format_table_data, format_csv, format_json  # noqa: E402
 from mcp_sqlserver.tools.execute_query import ensure_top  # noqa: E402
 
 
@@ -313,6 +313,48 @@ class TestFormatTableData(unittest.TestCase):
         # Extract value between pipes
         parts = data_line.strip("|").strip().split("|")
         self.assertLessEqual(len(parts[0].strip()), 20)
+
+
+class TestFormatCsvJson(unittest.TestCase):
+    """Tests for format_csv / format_json output formats."""
+
+    def test_csv_basic(self):
+        result = format_csv(["Name", "Age"], [("Alice", 30)])
+        self.assertIn("Name,Age", result)
+        self.assertIn("Alice,30", result)
+
+    def test_csv_quotes_comma_values(self):
+        result = format_csv(["Val"], [("a,b",)])
+        self.assertIn('"a,b"', result)
+
+    def test_csv_null_as_empty(self):
+        result = format_csv(["A", "B"], [(None, 1)])
+        self.assertIn(",1", result)
+
+    def test_csv_no_truncation(self):
+        long_val = "x" * 200
+        result = format_csv(["Col"], [(long_val,)])
+        self.assertIn(long_val, result)
+
+    def test_csv_empty(self):
+        self.assertEqual(format_csv(["A"], []), "*Nessun dato trovato*")
+
+    def test_json_basic(self):
+        result = format_json(["Name", "Age"], [("Alice", 30)])
+        self.assertIn('"Name": "Alice"', result)
+        self.assertIn('"Age": 30', result)
+
+    def test_json_null(self):
+        result = format_json(["A"], [(None,)])
+        self.assertIn('"A": null', result)
+
+    def test_json_non_serializable_via_str(self):
+        from decimal import Decimal
+        result = format_json(["Amount"], [(Decimal("1.50"),)])
+        self.assertIn('"1.50"', result)
+
+    def test_json_empty(self):
+        self.assertEqual(format_json(["A"], []), "*Nessun dato trovato*")
 
 
 class TestNormalize(unittest.TestCase):

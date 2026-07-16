@@ -15,8 +15,6 @@ from mcp.types import Tool, TextContent, CallToolResult
 from mcp_sqlserver import config
 from mcp_sqlserver.config import _load_config
 from mcp_sqlserver.pool import ConnectionPool
-from mcp_sqlserver.security import SecurityValidator
-from mcp_sqlserver.helpers import format_table_data
 from mcp_sqlserver.resources import register_resources
 from mcp_sqlserver.tools import (
     handle_list_tables,
@@ -27,6 +25,8 @@ from mcp_sqlserver.tools import (
     handle_search_columns,
     handle_table_statistics,
     handle_get_views,
+    handle_get_procedures,
+    handle_explain_query,
     handle_update_dictionary,
 )
 
@@ -108,6 +108,27 @@ async def list_tools() -> list[Tool]:
                     "query": {
                         "type": "string",
                         "description": "Query SQL SELECT da eseguire",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "csv", "json"],
+                        "description": "Formato output: markdown (default, valori troncati), csv o json (nessun troncamento, adatti a estrazioni dati)",
+                        "default": "markdown",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="explain_query",
+            title="Explain Query",
+            description="Mostra il piano di esecuzione stimato di una query SELECT senza eseguirla. Utile per diagnosticare query lente e valutare l'uso degli indici.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Query SQL SELECT da analizzare (non viene eseguita)",
                     },
                 },
                 "required": ["query"],
@@ -197,6 +218,29 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="get_procedures",
+            title="Get Stored Procedures",
+            description="Elenca le stored procedure del database con date di creazione/modifica. Può filtrare per schema o nome (wildcards) e includere la definizione SQL.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "schema_filter": {
+                        "type": "string",
+                        "description": "Filtra per schema specifico (opzionale)",
+                    },
+                    "name_filter": {
+                        "type": "string",
+                        "description": "Filtra per nome procedura, supporta wildcards (es. sp_ordini*)",
+                    },
+                    "include_definition": {
+                        "type": "boolean",
+                        "description": "Includi la definizione SQL (default: false — usare con name_filter per evitare output enormi)",
+                        "default": False,
+                    },
+                },
+            },
+        ),
+        Tool(
             name="update_dictionary",
             title="Update Semantic Dictionary",
             description=(
@@ -260,6 +304,10 @@ async def call_tool(name: str, arguments: Any) -> CallToolResult:
             content = await handle_table_statistics(pool, arguments)
         elif name == "get_views":
             content = await handle_get_views(pool, arguments)
+        elif name == "get_procedures":
+            content = await handle_get_procedures(pool, arguments)
+        elif name == "explain_query":
+            content = await handle_explain_query(pool, arguments)
         elif name == "update_dictionary":
             content = await handle_update_dictionary(pool, arguments)
         else:

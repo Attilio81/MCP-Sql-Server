@@ -9,7 +9,7 @@ from mcp.types import TextContent
 from mcp_sqlserver import config
 from mcp_sqlserver.pool import ConnectionPool
 from mcp_sqlserver.security import SecurityValidator
-from mcp_sqlserver.helpers import format_table_data
+from mcp_sqlserver.helpers import format_table_data, format_csv, format_json
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ def ensure_top(query: str, max_rows: int) -> str:
 async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
     """Handle execute_query tool"""
     query = arguments["query"].strip()
+    output_format = arguments.get("format", "markdown")
 
     # Security validation
     is_valid, error_msg = SecurityValidator.validate_query(query)
@@ -64,6 +65,11 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
         if len(rows) >= config.MAX_ROWS:
             result += f"⚠️ *Risultato limitato a {config.MAX_ROWS} righe*\n"
 
-        result += "\n" + format_table_data(columns, rows)
+        if output_format == "csv":
+            result += "\n" + format_csv(columns, rows)
+        elif output_format == "json":
+            result += "\n" + format_json(columns, rows)
+        else:
+            result += "\n" + format_table_data(columns, rows)
 
         return [TextContent(type="text", text=result)]
