@@ -320,7 +320,9 @@ async def call_tool(name: str, arguments: Any) -> CallToolResult:
                 isError=True,
             )
 
-        content = await handler(db, arguments)
+        # Handlers are synchronous (blocking pyodbc); run in a worker thread so a
+        # slow query on one database doesn't block calls to the others
+        content = await asyncio.to_thread(handler, db, arguments)
         return CallToolResult(content=content, isError=False)
 
     except TimeoutError as e:

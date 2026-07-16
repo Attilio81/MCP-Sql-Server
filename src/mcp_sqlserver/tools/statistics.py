@@ -7,7 +7,7 @@ from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-async def handle_table_statistics(db: Database, arguments: dict) -> list[TextContent]:
+def handle_table_statistics(db: Database, arguments: dict) -> list[TextContent]:
     """Handle get_table_statistics tool"""
     table_name = arguments["table_name"].strip()
 

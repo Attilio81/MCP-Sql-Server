@@ -8,7 +8,7 @@ from mcp_sqlserver.security import SecurityValidator
 from mcp_sqlserver.helpers import format_table_data
 
 
-async def handle_describe_table(db: Database, arguments: dict) -> list[TextContent]:
+def handle_describe_table(db: Database, arguments: dict) -> list[TextContent]:
     """Handle describe_table tool"""
     table_name = arguments["table_name"].strip()
     sample_rows = min(max(arguments.get("sample_rows", 10), 0), 50)

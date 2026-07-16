@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """Unit tests for dictionary tool — no database required."""
-import asyncio
-
 from mcp_sqlserver.databases import Database
 from mcp_sqlserver.tools.dictionary import (
     _DEFAULT_TEMPLATE,
@@ -55,9 +53,9 @@ def test_upsert_row_multiple_sections_correct_target():
 # ── handle_update_dictionary integration tests ─────────────────────────────
 
 def _run(arguments, dict_path):
-    """Run async handler synchronously with a stub Database."""
+    """Run the handler with a stub Database."""
     db = Database(name="test", connection_string="stub", dictionary_file=str(dict_path))
-    return asyncio.run(handle_update_dictionary(db, arguments))
+    return handle_update_dictionary(db, arguments)
 
 
 def test_handler_creates_file_when_missing(tmp_path):

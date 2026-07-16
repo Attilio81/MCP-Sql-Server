@@ -10,6 +10,7 @@ JSON file passed via --databases; the legacy single-database mode
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -37,14 +38,16 @@ class Database:
     allowed_schemas: list[str] = field(default_factory=list)
     dictionary_file: str = "semantic_dictionary.md"
     _pool: Optional[ConnectionPool] = field(default=None, repr=False, compare=False)
+    _pool_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
     def pool(self) -> ConnectionPool:
-        """Connection pool, created on first use."""
-        if self._pool is None:
-            logger.info("Creazione pool per database '%s'", self.name)
-            self._pool = ConnectionPool(self.connection_string, self.pool_size, self.pool_timeout)
-        return self._pool
+        """Connection pool, created on first use (handlers run in worker threads)."""
+        with self._pool_lock:
+            if self._pool is None:
+                logger.info("Creazione pool per database '%s'", self.name)
+                self._pool = ConnectionPool(self.connection_string, self.pool_size, self.pool_timeout)
+            return self._pool
 
     def close(self) -> None:
         if self._pool is not None:

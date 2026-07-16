@@ -8,7 +8,7 @@ from mcp.types import TextContent
 from mcp_sqlserver.databases import Database
 
 
-async def handle_get_views(db: Database, arguments: dict) -> list[TextContent]:
+def handle_get_views(db: Database, arguments: dict) -> list[TextContent]:
     """Handle get_views tool"""
     schema_filter = arguments.get("schema_filter")
     include_definition = arguments.get("include_definition", True)

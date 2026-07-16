@@ -27,7 +27,7 @@ def ensure_top(query: str, max_rows: int) -> str:
     )
 
 
-async def handle_execute_query(db: Database, arguments: dict) -> list[TextContent]:
+def handle_execute_query(db: Database, arguments: dict) -> list[TextContent]:
     """Handle execute_query tool"""
     query = arguments["query"].strip()
     output_format = arguments.get("format", "markdown")

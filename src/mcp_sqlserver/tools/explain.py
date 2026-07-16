@@ -11,7 +11,7 @@ from mcp_sqlserver.security import SecurityValidator
 logger = logging.getLogger(__name__)
 
 
-async def handle_explain_query(db: Database, arguments: dict) -> list[TextContent]:
+def handle_explain_query(db: Database, arguments: dict) -> list[TextContent]:
     """Handle explain_query tool: estimated execution plan, query is NOT executed."""
     query = arguments["query"].strip()
 

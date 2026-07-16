@@ -3,6 +3,7 @@
 
 import re
 import logging
+import threading
 from pathlib import Path
 
 from mcp.types import TextContent
@@ -10,6 +11,7 @@ from mcp.types import TextContent
 from mcp_sqlserver.databases import Database
 
 logger = logging.getLogger(__name__)
+_write_lock = threading.Lock()
 
 SECTION_HEADERS = {
     "entities": "## Entità di Business",
@@ -50,7 +52,7 @@ _DEFAULT_TEMPLATE = """\
 """
 
 
-async def handle_update_dictionary(db: Database, arguments: dict) -> list[TextContent]:
+def handle_update_dictionary(db: Database, arguments: dict) -> list[TextContent]:
     """Add or update a row in the semantic dictionary file.
 
     Called by Claude every time it discovers a non-obvious mapping between
@@ -83,17 +85,19 @@ async def handle_update_dictionary(db: Database, arguments: dict) -> list[TextCo
 
     dict_path = Path(db.dictionary_file)
 
-    if dict_path.exists():
-        content = dict_path.read_text(encoding="utf-8")
-    else:
-        content = _DEFAULT_TEMPLATE
-        dict_path.parent.mkdir(parents=True, exist_ok=True)
+    # Handlers run in worker threads: serialize the read-modify-write
+    with _write_lock:
+        if dict_path.exists():
+            content = dict_path.read_text(encoding="utf-8")
+        else:
+            content = _DEFAULT_TEMPLATE
+            dict_path.parent.mkdir(parents=True, exist_ok=True)
 
-    updated = _upsert_row(content, section, key, row)
-    try:
-        dict_path.write_text(updated, encoding="utf-8")
-    except OSError as e:
-        return [TextContent(type="text", text=f"❌ Errore scrittura dizionario: {e}")]
+        updated = _upsert_row(content, section, key, row)
+        try:
+            dict_path.write_text(updated, encoding="utf-8")
+        except OSError as e:
+            return [TextContent(type="text", text=f"❌ Errore scrittura dizionario: {e}")]
 
     logger.info("Dizionario aggiornato: sezione=%s key=%s", section, key)
     return [TextContent(type="text", text=f"✅ Dizionario aggiornato: '{key}' salvato in '{section}'")]

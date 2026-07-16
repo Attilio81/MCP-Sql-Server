@@ -7,7 +7,7 @@ from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-async def handle_list_tables(db: Database, arguments: dict) -> list[TextContent]:
+def handle_list_tables(db: Database, arguments: dict) -> list[TextContent]:
     """Handle list_tables tool"""
     schema_filter = arguments.get("schema_filter")
 

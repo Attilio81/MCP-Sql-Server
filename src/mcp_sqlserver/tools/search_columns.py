@@ -9,7 +9,7 @@ from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-async def handle_search_columns(db: Database, arguments: dict) -> list[TextContent]:
+def handle_search_columns(db: Database, arguments: dict) -> list[TextContent]:
     """Handle search_columns tool"""
     column_pattern = arguments["column_pattern"].strip()
     schema_filter = arguments.get("schema_filter")

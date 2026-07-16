@@ -8,7 +8,7 @@ from mcp.types import TextContent
 from mcp_sqlserver.databases import Database
 
 
-async def handle_get_procedures(db: Database, arguments: dict) -> list[TextContent]:
+def handle_get_procedures(db: Database, arguments: dict) -> list[TextContent]:
     """Handle get_procedures tool"""
     schema_filter = arguments.get("schema_filter")
     name_filter = arguments.get("name_filter")

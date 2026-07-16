@@ -8,6 +8,7 @@ unnamed URIs (db://schema/overview, db://dictionary, db://schema/tables/{t})
 keep working as aliases for the only configured database.
 """
 
+import asyncio
 from pathlib import Path
 
 from mcp.types import Resource, ResourceTemplate
@@ -78,16 +79,17 @@ def register_resources(app):
             name, _, path = path.partition("/")
             db = databases.get_database(name)
 
+        # Blocking pyodbc work runs in a worker thread (same as tool handlers)
         if path == "schema/overview":
-            return _read_schema_overview(db)
+            return await asyncio.to_thread(_read_schema_overview, db)
         if path == "dictionary":
-            return _read_dictionary(db)
+            return await asyncio.to_thread(_read_dictionary, db)
         prefix = "schema/tables/"
         if path.startswith(prefix):
             table_name = path[len(prefix):]
             if not table_name:
                 raise ValueError("Nome tabella mancante nell'URI")
-            return _read_table_schema(db, table_name)
+            return await asyncio.to_thread(_read_table_schema, db, table_name)
 
         raise ValueError(f"Risorsa sconosciuta: {uri_str}")
 
