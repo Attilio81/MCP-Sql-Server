@@ -3,7 +3,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-2025--11--25-green.svg)](https://modelcontextprotocol.io/specification/2025-11-25)
-[![Tests](https://img.shields.io/badge/tests-68%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-128%20passing-brightgreen.svg)](tests/)
 
 A secure, production-ready [Model Context Protocol](https://modelcontextprotocol.io/) server that lets Claude Desktop and Claude Code inspect and query SQL Server databases — read-only by design, with multi-layer SQL injection prevention, table/schema access controls, and a self-learning semantic dictionary.
 
@@ -230,11 +230,11 @@ Every business database has a vocabulary the schema alone can't reveal: `anagra`
 1. You ask a business question ("how many sales did Mario Rossi make?")
 2. Claude explores the schema and finds the answer
 3. Claude saves the non-obvious mapping via `update_dictionary` and tells you it did
-4. Next session, `db://dictionary` is loaded automatically — Claude starts already informed
+4. Next session, `db://{name}/dictionary` is loaded automatically — Claude starts already informed
 
 The file has three sections — business entities (term → table), filter aliases ("active" → `stato = 'A'`), and notable join relationships. It is plain Markdown: edit it by hand or through the Manager's 📖 editor whenever you want.
 
-In multi-database setups give each server its own `--dictionary-file` — different domains, different vocabularies.
+Each database gets its own dictionary automatically (`<name>_dictionary.md` next to `databases.json`) — different domains, different vocabularies. Override per database with the `dictionary_file` key.
 
 > Full guide: [`docs/manuale-dizionario-semantico.md`](docs/manuale-dizionario-semantico.md)
 
@@ -251,6 +251,7 @@ Then open <http://localhost:8090>. Requires `pip install -e ".[manager]"` (done 
 - **Add / edit / delete** databases in `databases.json`; the single `sqlserver` entry in `claude_desktop_config.json` is kept in sync automatically (other entries untouched)
 - **Auto-migrates** old per-database config entries into `databases.json` on first load
 - **Test** any connection before saving; on page load every database is probed in parallel (status rail per card)
+- **Duplicate** a database to onboard a new client on the same ERP layout, **copy** its connection string, **filter** the list by name/server/database
 - **"Registra su Claude Code"** registers the multi-database server on Claude Code (`claude mcp add --scope user`) with one click
 - **📖 button** opens the semantic dictionary editor for that database
 - **Auto-detects** the Claude Desktop config path on Windows, macOS, and Linux
@@ -294,7 +295,7 @@ tests/                   # unit tests, no database required
 
 ```bash
 pip install -e ".[dev,manager]"
-pytest tests/ -v          # 68+ unit tests, no DB needed
+pytest tests/ -v          # 128 unit tests, no DB needed
 ruff check src/
 ```
 
