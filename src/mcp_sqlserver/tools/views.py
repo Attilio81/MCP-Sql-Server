@@ -5,16 +5,15 @@ from typing import Any
 
 from mcp.types import TextContent
 
-from mcp_sqlserver import config
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 
 
-async def handle_get_views(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_get_views(db: Database, arguments: dict) -> list[TextContent]:
     """Handle get_views tool"""
     schema_filter = arguments.get("schema_filter")
     include_definition = arguments.get("include_definition", True)
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
 
         query = """
@@ -43,7 +42,7 @@ async def handle_get_views(pool: ConnectionPool, arguments: dict) -> list[TextCo
         # Filter by allowed schemas
         filtered_views = []
         for schema_name, view_name, definition in views:
-            if config.ALLOWED_SCHEMAS and schema_name.lower() not in config.ALLOWED_SCHEMAS:
+            if db.allowed_schemas and schema_name.lower() not in db.allowed_schemas:
                 continue
             filtered_views.append((schema_name, view_name, definition))
 

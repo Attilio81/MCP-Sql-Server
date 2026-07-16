@@ -7,8 +7,7 @@ from pathlib import Path
 
 from mcp.types import TextContent
 
-from mcp_sqlserver import config
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ _DEFAULT_TEMPLATE = """\
 """
 
 
-async def handle_update_dictionary(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_update_dictionary(db: Database, arguments: dict) -> list[TextContent]:
     """Add or update a row in the semantic dictionary file.
 
     Called by Claude every time it discovers a non-obvious mapping between
@@ -82,7 +81,7 @@ async def handle_update_dictionary(pool: ConnectionPool, arguments: dict) -> lis
     if not row:
         return [TextContent(type="text", text="❌ 'row' è obbligatorio")]
 
-    dict_path = Path(config.DICTIONARY_FILE)
+    dict_path = Path(db.dictionary_file)
 
     if dict_path.exists():
         content = dict_path.read_text(encoding="utf-8")

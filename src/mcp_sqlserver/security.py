@@ -102,11 +102,24 @@ class SecurityValidator:
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def is_table_allowed(cls, table_name: str, schema: Optional[str] = None) -> tuple[bool, str]:
+    def is_table_allowed(
+        cls,
+        table_name: str,
+        schema: Optional[str] = None,
+        *,
+        allowed_schemas: Optional[list[str]] = None,
+        blacklist: Optional[list[str]] = None,
+    ) -> tuple[bool, str]:
         """
         Check if a table is allowed based on blacklist and schema rules.
+        allowed_schemas / blacklist default to the module-level config
+        (legacy single-db mode); multi-db callers pass per-database lists.
         Returns (is_allowed, error_message).
         """
+        if allowed_schemas is None:
+            allowed_schemas = config.ALLOWED_SCHEMAS
+        if blacklist is None:
+            blacklist = config.BLACKLIST_TABLES
         # Strip bracket quoting before processing
         raw = table_name.strip()
         parts = [cls._strip_brackets(p) for p in raw.split(".")]
@@ -126,14 +139,14 @@ class SecurityValidator:
             return False, f"Schema name contains invalid characters: {schema}"
 
         # Check allowed schemas whitelist
-        if config.ALLOWED_SCHEMAS and schema.lower() not in config.ALLOWED_SCHEMAS:
+        if allowed_schemas and schema.lower() not in allowed_schemas:
             return False, (
                 f"Schema '{schema}' is not authorised. "
-                f"Allowed schemas: {', '.join(config.ALLOWED_SCHEMAS)}"
+                f"Allowed schemas: {', '.join(allowed_schemas)}"
             )
 
         # Check blacklist with wildcard support
-        for pattern in config.BLACKLIST_TABLES:
+        for pattern in blacklist:
             if fnmatch.fnmatch(table.lower(), pattern.lower()):
                 return False, f"Table '{table}' matches blacklist pattern '{pattern}'"
             if fnmatch.fnmatch(f"{schema}.{table}".lower(), pattern.lower()):

@@ -5,13 +5,13 @@ import logging
 
 from mcp.types import TextContent
 
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 logger = logging.getLogger(__name__)
 
 
-async def handle_explain_query(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_explain_query(db: Database, arguments: dict) -> list[TextContent]:
     """Handle explain_query tool: estimated execution plan, query is NOT executed."""
     query = arguments["query"].strip()
 
@@ -21,11 +21,12 @@ async def handle_explain_query(pool: ConnectionPool, arguments: dict) -> list[Te
         return [TextContent(type="text", text=f"🔒 Query non valida: {error_msg}")]
 
     for table in SecurityValidator.extract_table_names(query):
-        allowed, error_msg = SecurityValidator.is_table_allowed(table)
+        allowed, error_msg = SecurityValidator.is_table_allowed(
+            table, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
         if not allowed:
             return [TextContent(type="text", text=f"🔒 Query non valida: {error_msg}")]
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SET SHOWPLAN_ALL ON")
         try:

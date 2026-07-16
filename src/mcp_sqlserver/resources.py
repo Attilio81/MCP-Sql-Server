@@ -1,48 +1,61 @@
 # -*- coding: utf-8 -*-
 """
 MCP Resources for SQL Server database schema inspection.
+
+URIs are per-database: db://{name}/schema/overview, db://{name}/dictionary,
+db://{name}/schema/tables/{table}. In single-database mode the legacy
+unnamed URIs (db://schema/overview, db://dictionary, db://schema/tables/{t})
+keep working as aliases for the only configured database.
 """
 
-from mcp.types import Resource, ResourceTemplate, TextContent
+from pathlib import Path
 
-from mcp_sqlserver import config
-from mcp_sqlserver.pool import ConnectionPool
+from mcp.types import Resource, ResourceTemplate
+
+from mcp_sqlserver import databases
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-def register_resources(app, get_pool):
+def register_resources(app):
     """Register all resource handlers on the MCP app."""
 
     @app.list_resources()
     async def list_resources() -> list[Resource]:
-        """List static resources — database schema overview."""
-        return [
-            Resource(
-                uri="db://schema/overview",
-                name="database-schema-overview",
-                title="Database Schema Overview",
-                description="Panoramica completa dello schema del database: tabelle, colonne, tipi e chiavi primarie",
+        """Per-database schema overview and semantic dictionary."""
+        multi = databases.is_multi()
+        resources: list[Resource] = []
+        for name in sorted(databases.DATABASES):
+            prefix = f"db://{name}" if multi else "db:/"
+            label = f" [{name}]" if multi else ""
+            resources.append(Resource(
+                uri=f"{prefix}/schema/overview",
+                name=f"database-schema-overview{('-' + name) if multi else ''}",
+                title=f"Database Schema Overview{label}",
+                description=f"Panoramica completa dello schema{label}: tabelle, colonne, tipi e chiavi primarie",
                 mimeType="text/plain",
-            ),
-            Resource(
-                uri="db://dictionary",
-                name="semantic-dictionary",
-                title="Semantic Dictionary",
+            ))
+            resources.append(Resource(
+                uri=f"{prefix}/dictionary",
+                name=f"semantic-dictionary{('-' + name) if multi else ''}",
+                title=f"Semantic Dictionary{label}",
                 description=(
-                    "Dizionario semantico del database: mappa tra linguaggio di business e schema fisico. "
-                    "Carica questa risorsa all'inizio della sessione per conoscere le associazioni già scoperte "
-                    "(termini utente → tabelle/colonne, filtri comuni, relazioni notevoli)."
+                    f"Dizionario semantico{label}: mappa tra linguaggio di business e schema fisico. "
+                    "Carica questa risorsa all'inizio della sessione per conoscere le associazioni già scoperte."
                 ),
                 mimeType="text/markdown",
-            ),
-        ]
+            ))
+        return resources
 
     @app.list_resource_templates()
     async def list_resource_templates() -> list[ResourceTemplate]:
-        """List dynamic resource templates for per-table schema inspection."""
+        if databases.is_multi():
+            template = "db://{database}/schema/tables/{table_name}"
+        else:
+            template = "db://schema/tables/{table_name}"
         return [
             ResourceTemplate(
-                uriTemplate="db://schema/tables/{table_name}",
+                uriTemplate=template,
                 name="table-schema",
                 title="Table Schema",
                 description="Schema dettagliato di una singola tabella (colonne, tipi, chiavi)",
@@ -52,30 +65,36 @@ def register_resources(app, get_pool):
 
     @app.read_resource()
     async def read_resource(uri: str) -> str:
-        """Read a resource by URI."""
+        """Read a resource by URI (named or legacy single-db form)."""
         uri_str = str(uri)
+        if not uri_str.startswith("db://"):
+            raise ValueError(f"Risorsa sconosciuta: {uri_str}")
+        path = uri_str[len("db://"):]
 
-        if uri_str == "db://schema/overview":
-            return _read_schema_overview(get_pool)
+        # Legacy unnamed URIs → the only configured database
+        if path in ("schema/overview", "dictionary") or path.startswith("schema/tables/"):
+            db = databases.get_database()  # raises if ambiguous (multi-db)
+        else:
+            name, _, path = path.partition("/")
+            db = databases.get_database(name)
 
-        if uri_str == "db://dictionary":
-            return _read_dictionary()
-
-        # Match db://schema/tables/{table_name}
-        prefix = "db://schema/tables/"
-        if uri_str.startswith(prefix):
-            table_name = uri_str[len(prefix):]
+        if path == "schema/overview":
+            return _read_schema_overview(db)
+        if path == "dictionary":
+            return _read_dictionary(db)
+        prefix = "schema/tables/"
+        if path.startswith(prefix):
+            table_name = path[len(prefix):]
             if not table_name:
                 raise ValueError("Nome tabella mancante nell'URI")
-            return _read_table_schema(get_pool, table_name)
+            return _read_table_schema(db, table_name)
 
         raise ValueError(f"Risorsa sconosciuta: {uri_str}")
 
 
-def _read_schema_overview(get_pool) -> str:
+def _read_schema_overview(db: Database) -> str:
     """Return a full schema overview as plain text."""
-    pool = get_pool()
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT
@@ -110,7 +129,8 @@ def _read_schema_overview(get_pool) -> str:
         full_name = f"{schema_name}.{table_name}"
 
         # Apply access controls
-        is_allowed, _ = SecurityValidator.is_table_allowed(full_name)
+        is_allowed, _ = SecurityValidator.is_table_allowed(
+            full_name, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
         if not is_allowed:
             continue
 
@@ -130,10 +150,11 @@ def _read_schema_overview(get_pool) -> str:
     return "\n".join(lines)
 
 
-def _read_table_schema(get_pool, table_name: str) -> str:
+def _read_table_schema(db: Database, table_name: str) -> str:
     """Return the schema for a single table."""
     # Security validation
-    is_allowed, error_msg = SecurityValidator.is_table_allowed(table_name)
+    is_allowed, error_msg = SecurityValidator.is_table_allowed(
+        table_name, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
     if not is_allowed:
         raise ValueError(f"Accesso negato: {error_msg}")
 
@@ -143,8 +164,7 @@ def _read_table_schema(get_pool, table_name: str) -> str:
     else:
         schema, table = "dbo", parts[0]
 
-    pool = get_pool()
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT
@@ -196,10 +216,9 @@ def _read_table_schema(get_pool, table_name: str) -> str:
     return "\n".join(lines)
 
 
-def _read_dictionary() -> str:
+def _read_dictionary(db: Database) -> str:
     """Return the semantic dictionary file contents, or empty string if not created yet."""
-    from pathlib import Path
-    dict_path = Path(config.DICTIONARY_FILE)
+    dict_path = Path(db.dictionary_file)
     if not dict_path.exists():
         return ""
     return dict_path.read_text(encoding="utf-8")

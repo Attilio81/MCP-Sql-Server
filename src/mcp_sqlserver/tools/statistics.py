@@ -3,17 +3,17 @@
 
 from mcp.types import TextContent
 
-from mcp_sqlserver import config
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-async def handle_table_statistics(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_table_statistics(db: Database, arguments: dict) -> list[TextContent]:
     """Handle get_table_statistics tool"""
     table_name = arguments["table_name"].strip()
 
     # Security validation
-    is_allowed, error_msg = SecurityValidator.is_table_allowed(table_name)
+    is_allowed, error_msg = SecurityValidator.is_table_allowed(
+        table_name, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
     if not is_allowed:
         return [TextContent(type="text", text=f"🔒 Accesso negato: {error_msg}")]
 
@@ -24,7 +24,7 @@ async def handle_table_statistics(pool: ConnectionPool, arguments: dict) -> list
     else:
         schema, table = "dbo", parts[0]
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
 
         # Get column info first
@@ -68,7 +68,7 @@ async def handle_table_statistics(pool: ConnectionPool, arguments: dict) -> list
             )
 
         full_query = " UNION ALL ".join(stat_parts)
-        conn.timeout = config.QUERY_TIMEOUT
+        conn.timeout = db.query_timeout
         cursor.execute(full_query)
         stats_rows = cursor.fetchall()
 

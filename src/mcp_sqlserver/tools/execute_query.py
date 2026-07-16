@@ -6,8 +6,7 @@ import logging
 
 from mcp.types import TextContent
 
-from mcp_sqlserver import config
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 from mcp_sqlserver.helpers import format_table_data, format_csv, format_json
 
@@ -28,7 +27,7 @@ def ensure_top(query: str, max_rows: int) -> str:
     )
 
 
-async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_execute_query(db: Database, arguments: dict) -> list[TextContent]:
     """Handle execute_query tool"""
     query = arguments["query"].strip()
     output_format = arguments.get("format", "markdown")
@@ -40,14 +39,15 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
 
     # Enforce blacklist / schema whitelist on every table referenced in the query
     for table in SecurityValidator.extract_table_names(query):
-        allowed, error_msg = SecurityValidator.is_table_allowed(table)
+        allowed, error_msg = SecurityValidator.is_table_allowed(
+            table, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
         if not allowed:
             return [TextContent(type="text", text=f"🔒 Query non valida: {error_msg}")]
 
-    query = ensure_top(query, config.MAX_ROWS)
+    query = ensure_top(query, db.max_rows)
 
-    with pool.get_connection() as conn:
-        conn.timeout = config.QUERY_TIMEOUT
+    with db.pool.get_connection() as conn:
+        conn.timeout = db.query_timeout
         cursor = conn.cursor()
         # Enforce read-only isolation — prevents dirty reads and any accidental writes
         cursor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
@@ -62,8 +62,8 @@ async def handle_execute_query(pool: ConnectionPool, arguments: dict) -> list[Te
         result += f"```sql\n{query}\n```\n\n"
         result += f"**Righe restituite:** {len(rows)}\n"
 
-        if len(rows) >= config.MAX_ROWS:
-            result += f"⚠️ *Risultato limitato a {config.MAX_ROWS} righe*\n"
+        if len(rows) >= db.max_rows:
+            result += f"⚠️ *Risultato limitato a {db.max_rows} righe*\n"
 
         if output_format == "csv":
             result += "\n" + format_csv(columns, rows)

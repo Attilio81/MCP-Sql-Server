@@ -41,13 +41,17 @@ def _parse_args():
         "--dictionary-file",
         help="Path del file dizionario semantico (default: semantic_dictionary.md)",
     )
+    parser.add_argument(
+        "--databases",
+        help="Path a un file JSON con più database nominati (modalità multi-db; sostituisce --connection-string)",
+    )
     return parser.parse_args()
 
 
 def _load_config():
     """Load configuration from CLI args and environment variables. Called lazily."""
     global CONNECTION_STRING, MAX_ROWS, QUERY_TIMEOUT, POOL_SIZE, POOL_TIMEOUT
-    global LOG_LEVEL, BLACKLIST_TABLES, ALLOWED_SCHEMAS, DICTIONARY_FILE, logger
+    global LOG_LEVEL, BLACKLIST_TABLES, ALLOWED_SCHEMAS, DICTIONARY_FILE, DATABASES_FILE, logger
 
     _args = _parse_args()
 
@@ -75,6 +79,9 @@ def _load_config():
     # Dictionary configuration
     DICTIONARY_FILE = _args.dictionary_file or os.getenv("DICTIONARY_FILE", "semantic_dictionary.md")
 
+    # Multi-database configuration
+    DATABASES_FILE = _args.databases or os.getenv("DATABASES_FILE")
+
     # Configure logging (after resolving LOG_LEVEL from CLI/env)
     logging.basicConfig(
         level=LOG_LEVEL,
@@ -93,6 +100,7 @@ LOG_LEVEL = "INFO"
 BLACKLIST_TABLES: list[str] = []
 ALLOWED_SCHEMAS: list[str] = []
 DICTIONARY_FILE: str = "semantic_dictionary.md"
+DATABASES_FILE: Optional[str] = None
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 4096  # characters

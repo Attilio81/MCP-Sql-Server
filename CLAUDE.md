@@ -39,7 +39,8 @@ python -m mcp_sqlserver.server --connection-string "Driver={ODBC Driver 17 for S
 src/mcp_sqlserver/
 ├── server.py       # MCP app instance, list_tools/call_tool handlers, entry point (run/main)
 ├── config.py       # CLI arg parsing + env var fallback; module-level globals mutated by _load_config()
-├── security.py     # SecurityValidator: is_table_allowed(), validate_query()
+├── databases.py    # Multi-db registry: Database dataclass (per-db settings + lazy pool), load_databases(), get_database()
+├── security.py     # SecurityValidator: is_table_allowed(), validate_query(), extract_table_names()
 ├── pool.py         # ConnectionPool: thread-safe Queue-based pool with auto-reconnect
 ├── helpers.py      # Markdown / CSV / JSON result formatting
 ├── resources.py    # MCP Resources: db://schema/overview, db://schema/tables/{name}, db://dictionary
@@ -64,12 +65,14 @@ src/mcp_sqlserver/
 
 **Connection pool**: `ConnectionPool` wraps a `queue.Queue` of `pyodbc` connections. Acquiring uses `pool.get(timeout=...)` (raises `Empty` → converted to `TimeoutError`). Every `get_connection()` context manager pings `SELECT 1` to detect dead connections and replaces them. Connections are always returned to the pool via `finally`, with a rollback and replacement-on-failure.
 
+**Multi-database mode**: `--databases file.json` registers many named databases (see `databases.py`); each `Database` carries its own connection string, limits, security lists, dictionary file, and a lazily-created pool. `list_tools()` injects a required `database` enum parameter into every tool schema when more than one database is configured; `call_tool()` resolves it via `get_database()`. Legacy `--connection-string` registers a single database named "default" and the parameter stays optional. Resource URIs are per-database (`db://{name}/dictionary`); unnamed legacy URIs work in single-db mode.
+
 **Security validation**: `SecurityValidator` in `security.py` has three public class methods:
-- `is_table_allowed(table_name, schema)` — validates identifier format, schema whitelist, and blacklist wildcard patterns.
+- `is_table_allowed(table_name, schema, *, allowed_schemas=None, blacklist=None)` — validates identifier format, schema whitelist, and blacklist wildcard patterns; kwargs default to config globals (legacy), multi-db callers pass the per-database lists.
 - `validate_query(query)` — six ordered layers: length cap (4096 chars), null-byte check, Unicode normalisation, SELECT-only enforcement, injection regex patterns, dangerous keyword word-boundary check.
 - `extract_table_names(query)` — token scanner that pulls table refs from FROM/JOIN/APPLY/comma-joins/subqueries; `execute_query` and `explain_query` pass each ref through `is_table_allowed` so blacklist/whitelist also cover free-form SELECTs.
 
-**Tool handler pattern**: Each tool lives in its own file under `tools/` and exports a single `async def handle_*(pool, arguments)` function returning `list[TextContent]`. `server.py` dispatches via a plain `if/elif` chain in `call_tool()`. To add a new tool: create the handler file, re-export from `tools/__init__.py`, add a `Tool(...)` entry in `list_tools()`, and add the dispatch branch in `call_tool()`.
+**Tool handler pattern**: Each tool lives in its own file under `tools/` and exports a single `async def handle_*(db: Database, arguments)` function returning `list[TextContent]`; `db` carries the pool and per-database settings. `server.py` dispatches via the `_HANDLERS` dict in `call_tool()`. To add a new tool: create the handler file, re-export from `tools/__init__.py`, add a `Tool(...)` entry in `list_tools()`, and add the entry to `_HANDLERS`.
 
 **MCP resources** are registered at module load time via `register_resources(app, get_pool)` called at the top of `server.py`, before the tool decorators. (MCP Prompts were removed — Claude handles analysis naturally.)
 

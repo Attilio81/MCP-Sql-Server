@@ -3,15 +3,15 @@
 
 from mcp.types import TextContent
 
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-async def handle_list_tables(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_list_tables(db: Database, arguments: dict) -> list[TextContent]:
     """Handle list_tables tool"""
     schema_filter = arguments.get("schema_filter")
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
 
         # Build query with parameterized schema filter
@@ -55,7 +55,8 @@ async def handle_list_tables(pool: ConnectionPool, arguments: dict) -> list[Text
 
         for schema_name, table_name, row_count, size_mb in tables:
             full_name = f"{schema_name}.{table_name}"
-            is_allowed, error_msg = SecurityValidator.is_table_allowed(full_name)
+            is_allowed, error_msg = SecurityValidator.is_table_allowed(
+                full_name, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
 
             if current_schema != schema_name:
                 current_schema = schema_name

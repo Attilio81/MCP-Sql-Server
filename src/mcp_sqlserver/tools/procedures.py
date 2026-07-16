@@ -5,17 +5,16 @@ from typing import Any
 
 from mcp.types import TextContent
 
-from mcp_sqlserver import config
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 
 
-async def handle_get_procedures(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_get_procedures(db: Database, arguments: dict) -> list[TextContent]:
     """Handle get_procedures tool"""
     schema_filter = arguments.get("schema_filter")
     name_filter = arguments.get("name_filter")
     include_definition = arguments.get("include_definition", False)
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
 
         query = """
@@ -47,7 +46,7 @@ async def handle_get_procedures(pool: ConnectionPool, arguments: dict) -> list[T
         # Filter by allowed schemas
         filtered = [
             row for row in procedures
-            if not config.ALLOWED_SCHEMAS or row[0].lower() in config.ALLOWED_SCHEMAS
+            if not db.allowed_schemas or row[0].lower() in db.allowed_schemas
         ]
 
         if not filtered:

@@ -134,16 +134,11 @@ def save_dictionary(server_name: str, body: DictionaryContent):
     return {"ok": True}
 
 
-@app.post("/api/servers/{name}/register-claude-code")
-def register_claude_code(name: str):
-    # Find the entry
-    try:
-        servers = config_manager.list_servers()
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-    entry = next((s for s in servers if s["name"] == name), None)
-    if entry is None:
-        raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
+@app.post("/api/register-claude-code")
+def register_claude_code():
+    """Register the single multi-database server on Claude Code (user scope)."""
+    if not config_manager.read_databases():
+        return {"ok": False, "error": "Nessun database configurato."}
 
     # Locate claude CLI (on Windows it may be claude.cmd)
     claude_exe = None
@@ -154,20 +149,10 @@ def register_claude_code(name: str):
     if not claude_exe:
         return {"ok": False, "error": "Claude CLI non trovato. Installa Claude Code e verifica che 'claude' sia nel PATH."}
 
-    # Build: claude mcp add <name> --scope user -- python -m mcp_sqlserver.server --connection-string "..." [opts]
     # The "--" stops claude's own option parser so it doesn't interpret "-m" as its flag.
-    cmd = [claude_exe, "mcp", "add", name, "--scope", "user", "--", "python",
-           "-m", "mcp_sqlserver.server",
-           "--connection-string", entry["connection_string"]]
-    for field, flag in (("max_rows", "--max-rows"), ("query_timeout", "--query-timeout"),
-                        ("pool_size", "--pool-size"), ("pool_timeout", "--pool-timeout"),
-                        ("allowed_schemas", "--allowed-schemas"),
-                        ("blacklist_tables", "--blacklist-tables"),
-                        ("log_level", "--log-level"),
-                        ("dictionary_file", "--dictionary-file")):
-        val = entry.get(field)
-        if val is not None and str(val).strip() not in ("", "INFO"):
-            cmd.extend([flag, str(val)])
+    cmd = [claude_exe, "mcp", "add", config_manager.MCP_ENTRY_NAME, "--scope", "user",
+           "--", "python", "-m", "mcp_sqlserver.server",
+           "--databases", str(config_manager.databases_path())]
 
     try:
         result = subprocess.run(
@@ -175,7 +160,7 @@ def register_claude_code(name: str):
             shell=(sys.platform == "win32"),
         )
         if result.returncode == 0:
-            return {"ok": True, "output": result.stdout.strip() or f"'{name}' registrato su Claude Code."}
+            return {"ok": True, "output": result.stdout.strip() or "Server multi-database registrato su Claude Code."}
         else:
             err = (result.stderr or result.stdout).strip()
             return {"ok": False, "error": err or "Comando fallito senza messaggio."}

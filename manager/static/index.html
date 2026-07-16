@@ -1,440 +1,563 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SQL MCP Manager</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; padding: 32px 24px; }
-    .wrap { max-width: 860px; margin: 0 auto; }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQL MCP Manager</title>
+<style>
+  :root {
+    --bg: #0E1420;
+    --panel: #16202F;
+    --panel-2: #1C2839;
+    --line: #26344A;
+    --ink: #E7EDF5;
+    --muted: #8CA0B8;
+    --faint: #5A6C82;
+    --copper: #E8A33D;
+    --copper-dim: #A9782F;
+    --ok: #3DDC97;
+    --err: #FF6B6B;
+    --busy: #7AA2F7;
+    --mono: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+    --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --disp: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+  }
+  ::selection { background: rgba(232,163,61,.35); }
+  button { font: inherit; cursor: pointer; }
+  input, textarea { font: inherit; }
 
-    /* Header */
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-    .title { font-size: 1.5rem; font-weight: 700; }
-    .title span { color: #6c63ff; }
-    .btn-primary { background: #6c63ff; color: #fff; border: none; padding: 9px 18px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-    .btn-primary:hover { background: #5a52e0; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; }
 
-    /* Error banner */
-    .banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; display: none; }
-    .banner.visible { display: block; }
+  /* ── Header: topology strip ─────────────────────────────── */
+  header { margin-bottom: 30px; }
+  .brand {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+  }
+  h1 {
+    font: 600 26px/1.2 var(--disp);
+    letter-spacing: -.02em;
+  }
+  h1 .dim { color: var(--faint); font-weight: 400; }
+  .topology {
+    margin-top: 10px;
+    font: 13px var(--mono);
+    color: var(--muted);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .topology .node {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 4px;
+    padding: 3px 10px;
+  }
+  .topology .node.hot { border-color: var(--copper-dim); color: var(--copper); }
+  .topology .link { color: var(--faint); }
+  .topology .sync { color: var(--ok); font-size: 12px; }
+  .actions { display: flex; gap: 10px; }
 
-    /* Server list */
-    .section-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; margin-bottom: 10px; }
-    .server-list { display: flex; flex-direction: column; gap: 10px; }
-    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
-    .dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; background: #94a3b8; }
-    .dot.online { background: #22c55e; box-shadow: 0 0 0 3px #22c55e33; }
-    .dot.offline { background: #ef4444; box-shadow: 0 0 0 3px #ef444433; }
-    .card-info { flex: 1; min-width: 0; }
-    .card-name { font-weight: 700; font-size: 1rem; }
-    .card-meta { font-size: 0.82rem; color: #64748b; margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
-    .tag { background: #f1f5f9; border-radius: 5px; padding: 2px 8px; font-size: 0.75rem; color: #475569; font-weight: 500; }
-    .tag.purple { background: #ede9fe; color: #6c63ff; }
-    .card-err { color: #ef4444; font-size: 0.8rem; }
-    .card-actions { display: flex; gap: 6px; flex-shrink: 0; }
-    .btn-sm { border: 1px solid #e2e8f0; background: #fff; border-radius: 7px; padding: 6px 10px; font-size: 0.8rem; cursor: pointer; color: #475569; }
-    .btn-sm:hover { background: #f8fafc; }
-    .btn-sm.purple { border-color: #c4b5fd; color: #6c63ff; }
-    .btn-sm.purple:hover { background: #ede9fe; }
-    .btn-sm.red:hover { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
-    .btn-sm.green { border-color: #bbf7d0; color: #16a34a; }
-    .btn-sm.green:hover { background: #f0fdf4; }
+  /* ── Buttons ────────────────────────────────────────────── */
+  .btn {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 8px 14px;
+    transition: border-color .15s, background .15s;
+  }
+  .btn:hover { border-color: var(--copper-dim); }
+  .btn:focus-visible, .icon:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--copper); outline-offset: 1px;
+  }
+  .btn.primary {
+    background: var(--copper);
+    border-color: var(--copper);
+    color: #221703;
+    font-weight: 600;
+  }
+  .btn.primary:hover { background: #F0B45A; }
+  .btn[disabled] { opacity: .5; cursor: wait; }
 
-    /* Dictionary modal */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
-    .modal-overlay.visible { display: flex; }
-    .modal-box { background: #fff; border-radius: 14px; padding: 28px; width: min(700px, 92vw); max-height: 88vh; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); }
-    .modal-title { font-size: 1rem; font-weight: 700; margin-bottom: 2px; }
-    .modal-hint { font-size: 0.75rem; color: #94a3b8; }
-    .modal-textarea { flex: 1; width: 100%; min-height: 360px; font-family: 'Courier New', monospace; font-size: 0.8rem; line-height: 1.5; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; resize: vertical; }
-    .modal-textarea:focus { outline: none; border-color: #6c63ff; box-shadow: 0 0 0 3px #6c63ff22; }
-    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; align-items: center; }
+  /* ── Card list ──────────────────────────────────────────── */
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 14px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px 14px 22px;
+    overflow: hidden;
+  }
+  /* signature: status rail on the left edge */
+  .card::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+    background: var(--faint);
+    transition: background .3s;
+  }
+  .card.ok::before   { background: var(--ok); }
+  .card.err::before  { background: var(--err); }
+  .card.busy::before {
+    background: var(--busy);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) {
+    .card.busy::before { animation: none; }
+  }
 
-    /* Form panel */
-    .form-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-top: 20px; display: none; }
-    .form-panel.visible { display: block; }
-    .form-title { font-size: 1rem; font-weight: 700; margin-bottom: 18px; }
-    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .form-full { grid-column: 1 / -1; }
-    .form-group label { display: block; font-size: 0.75rem; font-weight: 600; color: #64748b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .form-group input { width: 100%; padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.88rem; }
-    .form-group input:focus { outline: none; border-color: #6c63ff; box-shadow: 0 0 0 3px #6c63ff22; }
-    .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 16px; border-top: 1px solid #f1f5f9; align-items: center; }
-    .btn-cancel { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; padding: 9px 18px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
-    .btn-test { background: #ede9fe; color: #6c63ff; border: 1px solid #c4b5fd; padding: 9px 14px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
-    .btn-save { background: #6c63ff; color: #fff; border: none; padding: 9px 20px; border-radius: 8px; font-weight: 600; font-size: 0.88rem; cursor: pointer; }
-    .test-result { font-size: 0.82rem; margin-right: auto; }
-    .test-result.ok { color: #16a34a; }
-    .test-result.fail { color: #ef4444; }
-  </style>
+  .card .name {
+    font: 600 16px var(--mono);
+    color: var(--ink);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .card .name .state { font: 11px var(--mono); color: var(--muted); font-weight: 400; }
+  .card.err .name .state { color: var(--err); }
+  .card .conn {
+    grid-column: 1;
+    font: 12.5px var(--mono);
+    color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .card .conn .sep { color: var(--faint); padding: 0 4px; }
+  .card .meta {
+    grid-column: 1;
+    font: 11.5px var(--mono);
+    color: var(--faint);
+    display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .card .tools {
+    grid-column: 2; grid-row: 1 / span 3;
+    display: flex; gap: 6px;
+  }
+  .icon {
+    border: 1px solid transparent;
+    background: none;
+    color: var(--muted);
+    border-radius: 6px;
+    width: 34px; height: 34px;
+    display: grid; place-items: center;
+    font-size: 15px;
+    transition: color .15s, border-color .15s;
+  }
+  .icon:hover { color: var(--ink); border-color: var(--line); }
+  .icon.del:hover { color: var(--err); }
+
+  .empty {
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 48px 20px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .empty code { font-family: var(--mono); color: var(--copper); }
+
+  /* ── Modal ──────────────────────────────────────────────── */
+  dialog {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0;
+    width: min(680px, calc(100vw - 32px));
+    max-height: calc(100vh - 64px);
+  }
+  dialog::backdrop { background: rgba(5, 9, 16, .75); }
+  .modal-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+    font: 600 16px var(--disp);
+  }
+  .modal-body { padding: 20px; overflow: auto; max-height: calc(100vh - 190px); }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--line);
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  @media (max-width: 620px) { .grid2, .grid4 { grid-template-columns: 1fr; } }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block;
+    font: 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .field input, .field textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--ink);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .field input:focus, .field textarea:focus { border-color: var(--copper-dim); outline: none; }
+  .field .hint { font-size: 11.5px; color: var(--faint); margin-top: 4px; }
+  #dict-text { min-height: 46vh; resize: vertical; line-height: 1.6; }
+
+  /* ── Toast ──────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 22px; left: 50%;
+    transform: translateX(-50%) translateY(90px);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--copper);
+    border-radius: 8px;
+    padding: 11px 18px;
+    font: 13.5px var(--mono);
+    max-width: min(640px, 90vw);
+    transition: transform .25s ease;
+    z-index: 50;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.ok  { border-left-color: var(--ok); }
+  #toast.err { border-left-color: var(--err); }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
 </head>
 <body>
 <div class="wrap">
-  <div class="header">
-    <div class="title">SQL MCP <span>Manager</span></div>
-    <button class="btn-primary" onclick="openForm()">＋ Nuova Connessione</button>
-  </div>
-
-  <div class="banner" id="banner"></div>
-
-  <div class="section-label" id="list-label">Caricamento...</div>
-  <div class="server-list" id="server-list"></div>
-
-  <div class="form-panel" id="form-panel">
-    <div class="form-title" id="form-title">Nuova connessione</div>
-    <input type="hidden" id="edit-name">
-    <div class="form-grid">
-      <div class="form-group">
-        <label>Nome MCP Server *</label>
-        <input type="text" id="f-name" placeholder="es. db-vendite">
-      </div>
-      <div class="form-group">
-        <label>Max Righe</label>
-        <input type="number" id="f-max-rows" placeholder="100">
-      </div>
-      <div class="form-group form-full">
-        <label>Connection String *</label>
-        <input type="text" id="f-conn" placeholder="Driver={ODBC Driver 17 for SQL Server};Server=...;Database=...;Trusted_Connection=yes">
-      </div>
-      <div class="form-group">
-        <label>Schema Consentiti</label>
-        <input type="text" id="f-schemas" placeholder="dbo, sales">
-      </div>
-      <div class="form-group">
-        <label>Tabelle Blacklist</label>
-        <input type="text" id="f-blacklist" placeholder="sys_*, *_audit">
-      </div>
-      <div class="form-group">
-        <label>Query Timeout (s)</label>
-        <input type="number" id="f-query-timeout" placeholder="30">
-      </div>
-      <div class="form-group">
-        <label>Pool Size</label>
-        <input type="number" id="f-pool-size" placeholder="5">
-      </div>
-      <div class="form-group">
-        <label>Pool Timeout (s)</label>
-        <input type="number" id="f-pool-timeout" placeholder="30">
-      </div>
-      <div class="form-group form-full">
-        <label>File Dizionario <span style="font-weight:400;color:#94a3b8">(opzionale)</span></label>
-        <input type="text" id="f-dictionary-file" placeholder="semantic_dictionary.md">
-        <small style="color:#94a3b8;font-size:0.72rem;display:block;margin-top:3px">Path dove Claude salva la conoscenza semantica. Lascia vuoto per il default.</small>
+  <header>
+    <div class="brand">
+      <h1>SQL MCP Manager <span class="dim">/ database</span></h1>
+      <div class="actions">
+        <button class="btn" id="btn-cc" title="Registra il server su Claude Code (scope utente)">Registra su Claude Code</button>
+        <button class="btn primary" id="btn-add">+ Aggiungi database</button>
       </div>
     </div>
-    <div class="form-actions">
-      <span class="test-result" id="test-result"></span>
-      <button class="btn-cancel" onclick="closeForm()">Annulla</button>
-      <button class="btn-test" onclick="testForm()">⚡ Testa</button>
-      <button class="btn-save" onclick="saveForm()">Salva</button>
+    <div class="topology">
+      <span class="node">Claude</span><span class="link">⇄</span><span class="node hot">sqlserver</span><span class="link">⇄</span><span class="node" id="topo-count">…</span>
+      <span class="sync" id="topo-sync"></span>
     </div>
-  </div>
+  </header>
 
-  <!-- Dictionary Modal -->
-  <div class="modal-overlay" id="dict-modal" onclick="if(event.target===this)closeDictionary()">
-    <div class="modal-box">
-      <div>
-        <div class="modal-title" id="dict-modal-title">Dizionario Semantico</div>
-        <div class="modal-hint">Aggiornato automaticamente da Claude. Puoi modificarlo manualmente o copiare sezioni da altri dizionari.</div>
-      </div>
-      <textarea class="modal-textarea" id="dict-textarea" placeholder="Il dizionario è vuoto. Claude lo popolerà automaticamente durante le conversazioni."></textarea>
-      <div class="modal-footer">
-        <span class="test-result" id="dict-save-result" style="margin-right:auto"></span>
-        <button class="btn-cancel" onclick="closeDictionary()">Chiudi</button>
-        <button class="btn-save" onclick="saveDictionary()">Salva Modifiche</button>
-      </div>
-    </div>
-  </div>
+  <div class="list" id="list"></div>
 </div>
 
+<!-- Add / edit -->
+<dialog id="modal-form">
+  <form id="form">
+    <div class="modal-head"><span id="form-title">Nuovo database</span></div>
+    <div class="modal-body">
+      <div class="grid2">
+        <div class="field">
+          <label for="f-name">Nome</label>
+          <input id="f-name" required pattern="[^/?#%]+" autocomplete="off">
+          <div class="hint">Il nome che Claude usa per scegliere il database</div>
+        </div>
+        <div class="field">
+          <label for="f-dict">File dizionario</label>
+          <input id="f-dict" placeholder="(default: <nome>_dictionary.md)">
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-conn">Connection string</label>
+        <textarea id="f-conn" rows="3" required
+          placeholder="Driver={ODBC Driver 17 for SQL Server};Server=srv;Database=db;Trusted_Connection=yes"></textarea>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label for="f-schemas">Schemi consentiti</label>
+          <input id="f-schemas" placeholder="dbo,custom (vuoto = tutti)">
+        </div>
+        <div class="field">
+          <label for="f-blacklist">Tabelle bloccate</label>
+          <input id="f-blacklist" placeholder="sys_*,*_temp">
+        </div>
+      </div>
+      <div class="grid4">
+        <div class="field"><label for="f-maxrows">Max righe</label><input id="f-maxrows" type="number" value="100" min="1"></div>
+        <div class="field"><label for="f-qtimeout">Timeout query (s)</label><input id="f-qtimeout" type="number" value="30" min="1"></div>
+        <div class="field"><label for="f-poolsize">Pool</label><input id="f-poolsize" type="number" value="5" min="1"></div>
+        <div class="field"><label for="f-pooltimeout">Timeout pool (s)</label><input id="f-pooltimeout" type="number" value="30" min="1"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" type="button" id="form-test">⚡ Prova connessione</button>
+      <button class="btn" type="button" id="form-cancel">Annulla</button>
+      <button class="btn primary" type="submit">Salva</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Dictionary editor -->
+<dialog id="modal-dict">
+  <div class="modal-head"><span id="dict-title">Dizionario</span></div>
+  <div class="modal-body">
+    <div class="field">
+      <textarea id="dict-text" spellcheck="false"></textarea>
+      <div class="hint">Markdown, aggiornato anche da Claude durante le sessioni. Salvando sovrascrivi il file.</div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" id="dict-cancel">Annulla</button>
+    <button class="btn primary" id="dict-save">Salva dizionario</button>
+  </div>
+</dialog>
+
+<div id="toast" role="status"></div>
+
 <script>
-  let servers = [];
+"use strict";
+const $ = id => document.getElementById(id);
+const list = $("list");
+let servers = [];
+let editing = null; // name when editing, null when adding
 
-  async function loadServers() {
-    try {
-      const res = await fetch('/api/servers');
-      if (!res.ok) throw new Error(await res.text());
-      servers = await res.json();
-      renderList();
-      checkAllStatus();
-    } catch (e) {
-      showBanner('Errore caricamento: ' + e.message);
-    }
+/* ── helpers ─────────────────────────────────────────────── */
+function toast(msg, kind) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "show" + (kind ? " " + kind : "");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.className = "", 4200);
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch {}
+    throw new Error(detail);
   }
+  return res.json();
+}
 
-  function renderList() {
-    const el = document.getElementById('server-list');
-    const label = document.getElementById('list-label');
-    label.textContent = `Connessioni configurate — ${servers.length}`;
-    if (servers.length === 0) {
-      el.innerHTML = '<p style="color:#94a3b8;padding:16px 0">Nessuna connessione configurata.</p>';
-      return;
-    }
-    el.innerHTML = servers.map((s, i) => `
-      <div class="card" id="card-${i}">
-        <div class="dot" id="dot-${i}" title="Verifica in corso..."></div>
-        <div class="card-info">
-          <div class="card-name">${esc(s.name)}</div>
-          <div class="card-meta">
-            <span>${connLabel(s.connection_string)}</span>
-            ${s.allowed_schemas ? `<span class="tag purple">schema: ${esc(s.allowed_schemas)}</span>` : ''}
-            ${s.max_rows ? `<span class="tag">max ${s.max_rows} righe</span>` : ''}
-            ${s.query_timeout ? `<span class="tag">timeout ${s.query_timeout}s</span>` : ''}
-            <span id="err-${i}"></span>
-          </div>
-        </div>
-        <div class="card-actions">
-          <button class="btn-sm purple" onclick="testCard(${i})">⚡</button>
-          <button class="btn-sm green" onclick="registerClaudeCode(${i})" title="Registra su Claude Code">CC</button>
-          <button class="btn-sm" onclick="openDictionary(${i})" title="Dizionario semantico">📖</button>
-          <button class="btn-sm" onclick="editCard(${i})">✏️</button>
-          <button class="btn-sm red" onclick="deleteCard(${i})">🗑</button>
-        </div>
-      </div>`).join('');
+function connParts(cs) {
+  const get = k => (cs.match(new RegExp(k + "=([^;]*)", "i")) || [])[1] || "?";
+  return { server: get("Server"), db: get("Database"),
+           auth: /Trusted_Connection\s*=\s*yes/i.test(cs) ? "windows auth" : "sql auth" };
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* ── render ──────────────────────────────────────────────── */
+function render() {
+  $("topo-count").textContent = servers.length + " database";
+  $("topo-sync").textContent = servers.length ? "databases.json ⇢ claude_desktop_config.json" : "";
+  if (!servers.length) {
+    list.innerHTML = `<div class="empty">Nessun database configurato.<br>
+      Aggiungine uno: finisce in <code>databases.json</code> e Claude vede un solo server MCP.</div>`;
+    return;
   }
+  list.innerHTML = servers.map((s, i) => {
+    const p = connParts(s.connection_string);
+    const meta = [
+      s.allowed_schemas ? "schemi: " + s.allowed_schemas : "schemi: tutti",
+      "max " + (s.max_rows ?? 100) + " righe",
+      s.blacklist_tables ? "blacklist: " + s.blacklist_tables : null,
+    ].filter(Boolean).map(esc).join("</span><span>");
+    return `<div class="card" data-name="${esc(s.name)}">
+      <div class="name">${esc(s.name)} <span class="state" data-state></span></div>
+      <div class="conn">${esc(p.server)}<span class="sep">›</span>${esc(p.db)}<span class="sep">›</span>${p.auth}</div>
+      <div class="meta"><span>${meta}</span></div>
+      <div class="tools">
+        <button class="icon" title="Prova connessione" data-act="test" data-i="${i}">⚡</button>
+        <button class="icon" title="Dizionario semantico" data-act="dict" data-i="${i}">📖</button>
+        <button class="icon" title="Modifica" data-act="edit" data-i="${i}">✏️</button>
+        <button class="icon del" title="Elimina" data-act="del" data-i="${i}">🗑</button>
+      </div>
+    </div>`;
+  }).join("");
+}
 
-  function connLabel(cs) {
-    const srv = cs.match(/Server=([^;]+)/i)?.[1] || '';
-    const db  = cs.match(/Database=([^;]+)/i)?.[1] || '';
-    return srv && db ? `🖥 ${esc(srv)} › ${esc(db)}` : esc(cs.substring(0, 40)) + '…';
+list.addEventListener("click", e => {
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const s = servers[+btn.dataset.i];
+  if (!s) return;
+  ({ test: () => testCard(s.name), dict: () => openDict(s.name),
+     edit: () => openEdit(s.name), del: () => del(s.name) })[btn.dataset.act]();
+});
+
+function setState(name, cls, label) {
+  const card = list.querySelector(`.card[data-name="${CSS.escape(name)}"]`);
+  if (!card) return;
+  card.classList.remove("ok", "err", "busy");
+  if (cls) card.classList.add(cls);
+  const state = card.querySelector("[data-state]");
+  const full = label || "";
+  state.textContent = full.length > 90 ? full.slice(0, 90) + "…" : full;
+  state.title = full; // full error on hover
+}
+
+/* ── actions ─────────────────────────────────────────────── */
+async function load() {
+  try {
+    servers = await api("/api/servers");
+    render();
+    servers.forEach(s => testCard(s.name, true));
+  } catch (e) {
+    toast("Errore lettura configurazione: " + e.message, "err");
   }
+}
 
-  function esc(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+async function testCard(name, silent) {
+  const s = servers.find(x => x.name === name);
+  if (!s) return;
+  setState(name, "busy", "verifica…");
+  try {
+    const r = await api("/api/test", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connection_string: s.connection_string }),
+    });
+    setState(name, r.ok ? "ok" : "err", r.ok ? "online" : (r.error || "connessione fallita"));
+    if (!silent) toast(r.ok ? `${name}: connessione ok` : `${name}: ${r.error}`, r.ok ? "ok" : "err");
+  } catch (e) {
+    setState(name, "err", e.message);
   }
+}
 
-  async function checkAllStatus() {
-    await Promise.all(servers.map((s, i) => checkStatus(i, s.connection_string)));
-  }
+function openAdd() {
+  editing = null;
+  $("form-title").textContent = "Nuovo database";
+  $("form").reset();
+  $("f-name").disabled = false;
+  $("modal-form").showModal();
+}
 
-  async function checkStatus(i, cs) {
-    try {
-      const res = await fetch('/api/test', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({connection_string: cs})
+function openEdit(name) {
+  const s = servers.find(x => x.name === name);
+  if (!s) return;
+  editing = name;
+  $("form-title").textContent = "Modifica — " + name;
+  $("f-name").value = s.name;
+  $("f-name").disabled = true;
+  $("f-conn").value = s.connection_string || "";
+  $("f-schemas").value = s.allowed_schemas || "";
+  $("f-blacklist").value = s.blacklist_tables || "";
+  $("f-dict").value = s.dictionary_file || "";
+  $("f-maxrows").value = s.max_rows ?? 100;
+  $("f-qtimeout").value = s.query_timeout ?? 30;
+  $("f-poolsize").value = s.pool_size ?? 5;
+  $("f-pooltimeout").value = s.pool_timeout ?? 30;
+  $("modal-form").showModal();
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const entry = {
+    name: editing || $("f-name").value.trim(),
+    connection_string: $("f-conn").value.trim(),
+    allowed_schemas: $("f-schemas").value.trim(),
+    blacklist_tables: $("f-blacklist").value.trim(),
+    dictionary_file: $("f-dict").value.trim(),
+    max_rows: +$("f-maxrows").value || 100,
+    query_timeout: +$("f-qtimeout").value || 30,
+    pool_size: +$("f-poolsize").value || 5,
+    pool_timeout: +$("f-pooltimeout").value || 30,
+  };
+  try {
+    if (editing) {
+      await api("/api/servers/" + encodeURIComponent(editing), {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
       });
-      const data = await res.json();
-      const dot = document.getElementById('dot-' + i);
-      const err = document.getElementById('err-' + i);
-      if (!dot) return;
-      if (data.ok) {
-        dot.className = 'dot online';
-        dot.title = 'Connesso';
-      } else {
-        dot.className = 'dot offline';
-        dot.title = data.error || 'Errore';
-        if (err) err.className = 'card-err';
-        if (err) err.textContent = '✗ ' + (data.error || 'Connessione fallita');
-      }
-    } catch (_) {
-      const dot = document.getElementById('dot-' + i);
-      if (dot) { dot.className = 'dot offline'; dot.title = 'Errore di rete'; }
-    }
-  }
-
-  async function testCard(i) {
-    if (!servers[i]) return;
-    const dot = document.getElementById('dot-' + i);
-    if (dot) { dot.className = 'dot'; dot.title = 'Verifica...'; }
-    await checkStatus(i, servers[i].connection_string);
-  }
-
-  async function registerClaudeCode(i) {
-    if (!servers[i]) return;
-    const name = servers[i].name;
-    showBanner(`⏳ Registrazione "${name}" su Claude Code...`);
-    try {
-      const res = await fetch(`/api/servers/${encodeURIComponent(name)}/register-claude-code`, {method: 'POST'});
-      const data = await res.json();
-      if (data.ok) {
-        showSuccess(`✅ "${name}" registrato. Riavvia Claude Code per attivarlo.`);
-      } else {
-        showBanner(`❌ ${data.error}`);
-      }
-    } catch (e) {
-      showBanner('Errore: ' + e.message);
-    }
-  }
-
-  function editCard(i) {
-    const s = servers[i];
-    document.getElementById('edit-name').value = s.name;
-    document.getElementById('form-title').textContent = `Modifica: ${s.name}`;
-    document.getElementById('f-name').value = s.name;
-    document.getElementById('f-name').disabled = true;
-    document.getElementById('f-conn').value = s.connection_string || '';
-    document.getElementById('f-max-rows').value = s.max_rows || '';
-    document.getElementById('f-schemas').value = s.allowed_schemas || '';
-    document.getElementById('f-blacklist').value = s.blacklist_tables || '';
-    document.getElementById('f-query-timeout').value = s.query_timeout || '';
-    document.getElementById('f-pool-size').value = s.pool_size || '';
-    document.getElementById('f-pool-timeout').value = s.pool_timeout || '';
-    document.getElementById('f-dictionary-file').value = s.dictionary_file || '';
-    document.getElementById('test-result').textContent = '';
-    document.getElementById('form-panel').classList.add('visible');
-  }
-
-  async function deleteCard(i) {
-    if (!confirm(`Eliminare la connessione "${servers[i].name}"?`)) return;
-    try {
-      const res = await fetch(`/api/servers/${encodeURIComponent(servers[i].name)}`, {method: 'DELETE'});
-      if (!res.ok) {
-        let detail = 'Errore server';
-        try { detail = (await res.json()).detail || detail; } catch (_) {}
-        throw new Error(detail);
-      }
-      await loadServers();
-    } catch (e) {
-      showBanner('Errore eliminazione: ' + e.message);
-    }
-  }
-
-  function openForm() {
-    document.getElementById('edit-name').value = '';
-    document.getElementById('form-title').textContent = 'Nuova connessione';
-    document.getElementById('f-name').value = '';
-    document.getElementById('f-name').disabled = false;
-    ['f-conn','f-max-rows','f-schemas','f-blacklist','f-query-timeout','f-pool-size','f-pool-timeout','f-dictionary-file']
-      .forEach(id => document.getElementById(id).value = '');
-    document.getElementById('test-result').textContent = '';
-    document.getElementById('form-panel').classList.add('visible');
-  }
-
-  function closeForm() {
-    document.getElementById('form-panel').classList.remove('visible');
-  }
-
-  async function testForm() {
-    const cs = document.getElementById('f-conn').value.trim();
-    if (!cs) { alert('Inserisci una connection string.'); return; }
-    const el = document.getElementById('test-result');
-    el.textContent = '⏳ Test in corso...';
-    el.className = 'test-result';
-    try {
-      const res = await fetch('/api/test', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({connection_string: cs})
+    } else {
+      await api("/api/servers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
       });
-      const data = await res.json();
-      if (data.ok) {
-        el.textContent = '✅ Connessione OK';
-        el.className = 'test-result ok';
-      } else {
-        el.textContent = '❌ ' + (data.error || 'Errore');
-        el.className = 'test-result fail';
-      }
-    } catch (e) {
-      el.textContent = '❌ ' + e.message;
-      el.className = 'test-result fail';
     }
+    $("modal-form").close();
+    toast(`${entry.name} salvato — config Claude Desktop aggiornata`, "ok");
+    load();
+  } catch (err) {
+    toast(err.message, "err");
   }
+});
 
-  async function saveForm() {
-    const editName = document.getElementById('edit-name').value;
-    const body = {
-      name: document.getElementById('f-name').value.trim() || editName,
-      connection_string: document.getElementById('f-conn').value.trim(),
-      max_rows: parseInt(document.getElementById('f-max-rows').value) || 100,
-      query_timeout: parseInt(document.getElementById('f-query-timeout').value) || 30,
-      pool_size: parseInt(document.getElementById('f-pool-size').value) || 5,
-      pool_timeout: parseInt(document.getElementById('f-pool-timeout').value) || 30,
-      allowed_schemas: document.getElementById('f-schemas').value.trim(),
-      blacklist_tables: document.getElementById('f-blacklist').value.trim(),
-      log_level: 'INFO',
-      dictionary_file: document.getElementById('f-dictionary-file').value.trim(),
-    };
-    if (!body.name || !body.connection_string) {
-      alert('Nome e Connection String sono obbligatori.');
-      return;
-    }
-    try {
-      const method = editName ? 'PUT' : 'POST';
-      const url = editName ? `/api/servers/${encodeURIComponent(editName)}` : '/api/servers';
-      const res = await fetch(url, {
-        method,
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail);
-      closeForm();
-      await loadServers();
-    } catch (e) {
-      showBanner('Errore salvataggio: ' + e.message);
-    }
+$("form-cancel").addEventListener("click", () => $("modal-form").close());
+
+$("form-test").addEventListener("click", async () => {
+  const cs = $("f-conn").value.trim();
+  if (!cs) { toast("Inserisci la connection string", "err"); return; }
+  const btn = $("form-test");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/test", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connection_string: cs }),
+    });
+    toast(r.ok ? "Connessione riuscita" : r.error, r.ok ? "ok" : "err");
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btn.disabled = false;
   }
+});
 
-  function showBanner(msg, autohide = true) {
-    const el = document.getElementById('banner');
-    el.textContent = msg;
-    el.style.background = '';
-    el.style.borderColor = '';
-    el.style.color = '';
-    el.classList.add('visible');
-    if (autohide) setTimeout(() => el.classList.remove('visible'), 6000);
+async function del(name) {
+  if (!confirm(`Eliminare '${name}' da databases.json?\nIl file dizionario non viene toccato.`)) return;
+  try {
+    await api("/api/servers/" + encodeURIComponent(name), { method: "DELETE" });
+    toast(`${name} eliminato`, "ok");
+    load();
+  } catch (e) {
+    toast(e.message, "err");
   }
+}
 
-  function showSuccess(msg) {
-    const el = document.getElementById('banner');
-    el.textContent = msg;
-    el.style.background = '#f0fdf4';
-    el.style.borderColor = '#bbf7d0';
-    el.style.color = '#15803d';
-    el.classList.add('visible');
-    setTimeout(() => { el.classList.remove('visible'); el.style.background = el.style.borderColor = el.style.color = ''; }, 6000);
+/* ── dictionary ──────────────────────────────────────────── */
+let dictServer = null;
+async function openDict(name) {
+  dictServer = name;
+  $("dict-title").textContent = "Dizionario — " + name;
+  try {
+    const r = await api("/api/dictionary/" + encodeURIComponent(name));
+    $("dict-text").value = r.content;
+    $("modal-dict").showModal();
+  } catch (e) {
+    toast(e.message, "err");
   }
-
-  let dictServerName = null;
-
-  async function openDictionary(i) {
-    if (!servers[i]) return;
-    dictServerName = servers[i].name;
-    document.getElementById('dict-modal-title').textContent = `Dizionario Semantico — ${esc(dictServerName)}`;
-    document.getElementById('dict-textarea').value = '';
-    document.getElementById('dict-save-result').textContent = '';
-    document.getElementById('dict-save-result').className = 'test-result';
-    document.getElementById('dict-modal').classList.add('visible');
-    try {
-      const res = await fetch(`/api/dictionary/${encodeURIComponent(dictServerName)}`);
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      document.getElementById('dict-textarea').value = data.content;
-    } catch (e) {
-      document.getElementById('dict-save-result').textContent = '❌ Errore caricamento: ' + e.message;
-      document.getElementById('dict-save-result').className = 'test-result fail';
-    }
+}
+$("dict-cancel").addEventListener("click", () => $("modal-dict").close());
+$("dict-save").addEventListener("click", async () => {
+  try {
+    await api("/api/dictionary/" + encodeURIComponent(dictServer), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: $("dict-text").value }),
+    });
+    $("modal-dict").close();
+    toast("Dizionario salvato", "ok");
+  } catch (e) {
+    toast(e.message, "err");
   }
+});
 
-  function closeDictionary() {
-    document.getElementById('dict-modal').classList.remove('visible');
-    dictServerName = null;
+/* ── Claude Code registration ────────────────────────────── */
+$("btn-cc").addEventListener("click", async () => {
+  const btn = $("btn-cc");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/register-claude-code", { method: "POST" });
+    toast(r.ok ? (r.output || "Registrato su Claude Code") : r.error, r.ok ? "ok" : "err");
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btn.disabled = false;
   }
+});
 
-  async function saveDictionary() {
-    if (!dictServerName) return;
-    const content = document.getElementById('dict-textarea').value;
-    const resultEl = document.getElementById('dict-save-result');
-    resultEl.textContent = '⏳ Salvataggio...';
-    resultEl.className = 'test-result';
-    try {
-      const res = await fetch(`/api/dictionary/${encodeURIComponent(dictServerName)}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({content}),
-      });
-      if (!res.ok) throw new Error((await res.json()).detail || 'Errore');
-      resultEl.textContent = '✅ Salvato';
-      resultEl.className = 'test-result ok';
-    } catch (e) {
-      resultEl.textContent = '❌ ' + e.message;
-      resultEl.className = 'test-result fail';
-    }
-  }
-
-  loadServers();
+$("btn-add").addEventListener("click", openAdd);
+load();
 </script>
 </body>
 </html>

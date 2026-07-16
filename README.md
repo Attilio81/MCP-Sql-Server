@@ -83,60 +83,74 @@ brew update && brew install msodbcsql17
 
 ## Configuration
 
-All parameters are passed as command-line arguments in the Claude config — no `.env` needed. CLI arguments take precedence over environment variables.
+One server process serves **all your databases**. Databases are defined in a JSON file passed via `--databases`; every tool then takes a `database` parameter (with autocomplete of the configured names). The [Manager UI](#sql-mcp-manager) maintains this file for you — including automatic migration of old per-database config entries.
 
-### Claude Desktop
+### Multi-database mode (recommended)
 
-Edit `claude_desktop_config.json` (`%APPDATA%\Claude\` on Windows, `~/Library/Application Support/Claude/` on macOS, `~/.config/Claude/` on Linux):
+`~/.mcp_sqlserver/databases.json` — one block per database, each with its own limits and security rules:
+
+```json
+{
+  "sales": {
+    "connection_string": "Driver={ODBC Driver 17 for SQL Server};Server=srv1;Database=Sales;Trusted_Connection=yes",
+    "max_rows": 100,
+    "allowed_schemas": "dbo",
+    "blacklist_tables": "sys_*,*_audit"
+  },
+  "warehouse": {
+    "connection_string": "Driver={ODBC Driver 17 for SQL Server};Server=srv2;Database=WH;UID=user;PWD=password"
+  }
+}
+```
+
+**Claude Desktop** — single entry in `claude_desktop_config.json` (`%APPDATA%\Claude\` on Windows, `~/Library/Application Support/Claude/` on macOS, `~/.config/Claude/` on Linux):
 
 ```json
 {
   "mcpServers": {
     "sqlserver": {
       "command": "python",
-      "args": [
-        "-m", "mcp_sqlserver.server",
-        "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes",
-        "--max-rows", "100",
-        "--allowed-schemas", "dbo",
-        "--blacklist-tables", "sys_*,*_audit,*_temp"
-      ]
+      "args": ["-m", "mcp_sqlserver.server", "--databases", "C:\\Users\\you\\.mcp_sqlserver\\databases.json"]
     }
   }
 }
 ```
 
-Restart Claude Desktop after editing.
-
-### Claude Code
+**Claude Code:**
 
 ```bash
-claude mcp add mydb --scope user -- python -m mcp_sqlserver.server \
-  --connection-string "Driver={ODBC Driver 17 for SQL Server};Server=YOUR_SERVER;Database=YOUR_DB;Trusted_Connection=yes"
+claude mcp add sqlserver --scope user -- python -m mcp_sqlserver.server \
+  --databases "C:\Users\you\.mcp_sqlserver\databases.json"
 ```
 
-> Claude Desktop and Claude Code use **separate configuration stores**. The [Manager UI](#sql-mcp-manager) writes the Desktop config and can register servers on Claude Code with one click (the **CC** button). Details in [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md).
+Connection pools are created lazily — only databases actually used in a session open connections.
 
-### Multiple Databases
+> *"On the **warehouse** database, show me the Stock table"* — Claude passes `database: "warehouse"` on each tool call.
 
-Define one server entry per database — Claude sees them all and routes by name:
+### Single-database mode (legacy)
+
+Still fully supported — pass `--connection-string` instead of `--databases`; the `database` tool parameter becomes optional:
 
 ```json
-{
-  "mcpServers": {
-    "db-sales":     { "command": "python", "args": ["-m", "mcp_sqlserver.server", "--connection-string", "...Database=Sales..."] },
-    "db-warehouse": { "command": "python", "args": ["-m", "mcp_sqlserver.server", "--connection-string", "...Database=Warehouse..."] }
-  }
-}
+"args": [
+  "-m", "mcp_sqlserver.server",
+  "--connection-string", "Driver={ODBC Driver 17 for SQL Server};Server=SRV;Database=DB;Trusted_Connection=yes",
+  "--allowed-schemas", "dbo"
+]
 ```
 
-> *"On the **warehouse** database, show me the Stock table"*
+> Claude Desktop and Claude Code use **separate configuration stores**. The Manager UI keeps the Desktop config in sync automatically and registers the server on Claude Code with one click. Details in [CLAUDE_CODE_USAGE.md](CLAUDE_CODE_USAGE.md).
 
 ### Parameters
 
+Per-database keys in `databases.json`: `connection_string` (required), `max_rows`, `query_timeout`, `pool_size`, `pool_timeout`, `allowed_schemas`, `blacklist_tables`, `dictionary_file` (default: `<name>_dictionary.md` next to databases.json). Lists accept both JSON arrays and comma-separated strings.
+
+CLI arguments (single-db mode / global):
+
 | CLI argument | Env variable | Default | Description |
 |---|---|---|---|
-| `--connection-string` | `SQL_CONNECTION_STRING` | *(required)* | ODBC connection string |
+| `--databases` | `DATABASES_FILE` | *(none)* | Path to databases.json — enables multi-database mode |
+| `--connection-string` | `SQL_CONNECTION_STRING` | *(required in single-db mode)* | ODBC connection string |
 | `--max-rows` | `MAX_ROWS` | `100` | Max rows per query (a `TOP` clause is injected if missing) |
 | `--query-timeout` | `QUERY_TIMEOUT` | `30` | Query timeout, seconds |
 | `--pool-size` | `POOL_SIZE` | `5` | Connection pool size |
@@ -177,6 +191,7 @@ Driver={ODBC Driver 17 for SQL Server};Server=srv.database.windows.net;Database=
 
 Notes:
 
+- In multi-database mode every tool takes a required `database` parameter (enum of configured names) selecting which database the call targets.
 - `execute_query` injects `TOP {max_rows}` when missing and runs under `READ COMMITTED` isolation. `format: csv` / `json` return untruncated values — use them for real data extraction; the default Markdown table truncates long values for readability.
 - `explain_query` uses `SET SHOWPLAN_ALL`: SQL Server returns the optimizer's plan (operations, estimated rows, subtree cost) without touching data. Useful to diagnose slow queries and verify index usage.
 - `get_procedures` defaults to `include_definition: false`; combine with `name_filter` (e.g. `sp_orders*`) to fetch specific definitions without flooding the context.
@@ -200,9 +215,11 @@ MCP Resources provide read-only context that clients load automatically:
 
 | URI | Content |
 |---|---|
-| `db://schema/overview` | Full schema: all tables, columns, types, primary keys |
-| `db://schema/tables/{table_name}` | Detailed schema for one table |
-| `db://dictionary` | Semantic dictionary, auto-loaded at session start |
+| `db://{name}/schema/overview` | Full schema: all tables, columns, types, primary keys |
+| `db://{name}/schema/tables/{table}` | Detailed schema for one table |
+| `db://{name}/dictionary` | Semantic dictionary, auto-loaded at session start |
+
+In single-database mode the unnamed legacy URIs (`db://schema/overview`, `db://dictionary`, ...) keep working.
 
 ## Semantic Dictionary
 
@@ -231,9 +248,10 @@ start-manager.bat        # Windows — or: python -m manager.server
 
 Then open <http://localhost:8090>. Requires `pip install -e ".[manager]"` (done by `setup.bat`).
 
-- **Add / edit / delete** connections stored in `claude_desktop_config.json`, preserving unrelated entries
-- **Test** any connection before saving; on page load every server is probed in parallel (green/red status dots)
-- **CC button** registers a server on Claude Code (`claude mcp add --scope user`) with one click
+- **Add / edit / delete** databases in `databases.json`; the single `sqlserver` entry in `claude_desktop_config.json` is kept in sync automatically (other entries untouched)
+- **Auto-migrates** old per-database config entries into `databases.json` on first load
+- **Test** any connection before saving; on page load every database is probed in parallel (status rail per card)
+- **"Registra su Claude Code"** registers the multi-database server on Claude Code (`claude mcp add --scope user`) with one click
 - **📖 button** opens the semantic dictionary editor for that database
 - **Auto-detects** the Claude Desktop config path on Windows, macOS, and Linux
 
@@ -318,7 +336,7 @@ Restart Claude Desktop after config changes. For Claude Code run `claude mcp lis
 - [x] CSV / JSON export
 - [x] Execution plan analysis
 - [x] Stored procedure inspection
-- [ ] Single-server multi-database mode (one process, many connections)
+- [x] Single-server multi-database mode (one process, many databases)
 - [ ] Query audit log
 - [ ] PostgreSQL / MySQL support
 

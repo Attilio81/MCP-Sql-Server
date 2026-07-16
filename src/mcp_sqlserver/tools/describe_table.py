@@ -3,18 +3,19 @@
 
 from mcp.types import TextContent
 
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 from mcp_sqlserver.helpers import format_table_data
 
 
-async def handle_describe_table(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_describe_table(db: Database, arguments: dict) -> list[TextContent]:
     """Handle describe_table tool"""
     table_name = arguments["table_name"].strip()
     sample_rows = min(max(arguments.get("sample_rows", 10), 0), 50)
 
     # Security validation
-    is_allowed, error_msg = SecurityValidator.is_table_allowed(table_name)
+    is_allowed, error_msg = SecurityValidator.is_table_allowed(
+        table_name, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
     if not is_allowed:
         return [TextContent(type="text", text=f"🔒 Accesso negato: {error_msg}")]
 
@@ -25,7 +26,7 @@ async def handle_describe_table(pool: ConnectionPool, arguments: dict) -> list[T
     else:
         schema, table = "dbo", parts[0]
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
 
         # Get table schema information

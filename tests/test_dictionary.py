@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for dictionary tool — no database required."""
 import asyncio
-from pathlib import Path
-from unittest.mock import patch
 
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.tools.dictionary import (
     _DEFAULT_TEMPLATE,
     _upsert_row,
@@ -56,12 +55,9 @@ def test_upsert_row_multiple_sections_correct_target():
 # ── handle_update_dictionary integration tests ─────────────────────────────
 
 def _run(arguments, dict_path):
-    """Run async handler synchronously, patching config.DICTIONARY_FILE."""
-    async def _inner():
-        with patch("mcp_sqlserver.tools.dictionary.config") as mock_cfg:
-            mock_cfg.DICTIONARY_FILE = str(dict_path)
-            return await handle_update_dictionary(None, arguments)
-    return asyncio.run(_inner())
+    """Run async handler synchronously with a stub Database."""
+    db = Database(name="test", connection_string="stub", dictionary_file=str(dict_path))
+    return asyncio.run(handle_update_dictionary(db, arguments))
 
 
 def test_handler_creates_file_when_missing(tmp_path):

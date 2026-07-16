@@ -5,11 +5,11 @@ from typing import Any
 
 from mcp.types import TextContent
 
-from mcp_sqlserver.pool import ConnectionPool
+from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-async def handle_search_columns(pool: ConnectionPool, arguments: dict) -> list[TextContent]:
+async def handle_search_columns(db: Database, arguments: dict) -> list[TextContent]:
     """Handle search_columns tool"""
     column_pattern = arguments["column_pattern"].strip()
     schema_filter = arguments.get("schema_filter")
@@ -20,7 +20,7 @@ async def handle_search_columns(pool: ConnectionPool, arguments: dict) -> list[T
     if "%" not in like_pattern and "_" not in like_pattern:
         like_pattern = f"%{like_pattern}%"
 
-    with pool.get_connection() as conn:
+    with db.pool.get_connection() as conn:
         cursor = conn.cursor()
 
         query = """
@@ -64,7 +64,8 @@ async def handle_search_columns(pool: ConnectionPool, arguments: dict) -> list[T
         for row in rows:
             schema_name, table_name_val = row[0], row[1]
             full_name = f"{schema_name}.{table_name_val}"
-            is_allowed, _ = SecurityValidator.is_table_allowed(full_name)
+            is_allowed, _ = SecurityValidator.is_table_allowed(
+                full_name, allowed_schemas=db.allowed_schemas, blacklist=db.blacklist_tables)
             if is_allowed:
                 filtered_rows.append(row)
 

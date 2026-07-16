@@ -6,15 +6,14 @@ Implements connection pooling, SQL injection prevention, and comprehensive secur
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import pyodbc
 from mcp.server import Server
 from mcp.types import Tool, TextContent, CallToolResult
 
-from mcp_sqlserver import config
+from mcp_sqlserver import databases
 from mcp_sqlserver.config import _load_config
-from mcp_sqlserver.pool import ConnectionPool
 from mcp_sqlserver.resources import register_resources
 from mcp_sqlserver.tools import (
     handle_list_tables,
@@ -35,23 +34,12 @@ logger = logging.getLogger(__name__)
 # Initialize MCP server
 app = Server("mcp-sqlserver")
 
-# Initialize connection pool (will be created on first use)
-connection_pool: Optional[ConnectionPool] = None
-
-
-def get_pool() -> ConnectionPool:
-    """Get or create connection pool"""
-    global connection_pool
-    if connection_pool is None:
-        connection_pool = ConnectionPool(config.CONNECTION_STRING, config.POOL_SIZE, config.POOL_TIMEOUT)
-    return connection_pool
-
 
 # ------------------------------------------------------------------ #
-#  Register Resources & Prompts                                       #
+#  Register Resources                                                 #
 # ------------------------------------------------------------------ #
 
-register_resources(app, get_pool)
+register_resources(app)
 
 
 # ------------------------------------------------------------------ #
@@ -60,8 +48,8 @@ register_resources(app, get_pool)
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
-    """List available tools"""
-    return [
+    """List available tools. In multi-db mode every tool gets a required 'database' parameter."""
+    tools = [
         Tool(
             name="list_tables",
             title="List Tables",
@@ -101,7 +89,7 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="execute_query",
             title="Execute Query",
-            description=f"Esegue una query SELECT sul database (max {config.MAX_ROWS} righe, timeout {config.QUERY_TIMEOUT}s). Solo SELECT permesso.",
+            description="Esegue una query SELECT sul database (limite righe e timeout da configurazione). Solo SELECT permesso.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -280,43 +268,59 @@ async def list_tools() -> list[Tool]:
         ),
     ]
 
+    # In multi-db mode Claude must say which database each call targets
+    if databases.is_multi():
+        db_property = {
+            "type": "string",
+            "enum": sorted(databases.DATABASES),
+            "description": "Database di destinazione",
+        }
+        for tool in tools:
+            tool.inputSchema.setdefault("properties", {})["database"] = db_property
+            required = tool.inputSchema.setdefault("required", [])
+            required.insert(0, "database")
+
+    return tools
+
+
+_HANDLERS = {
+    "list_tables": handle_list_tables,
+    "describe_table": handle_describe_table,
+    "execute_query": handle_execute_query,
+    "get_table_relationships": handle_table_relationships,
+    "get_table_indexes": handle_table_indexes,
+    "search_columns": handle_search_columns,
+    "get_table_statistics": handle_table_statistics,
+    "get_views": handle_get_views,
+    "get_procedures": handle_get_procedures,
+    "explain_query": handle_explain_query,
+    "update_dictionary": handle_update_dictionary,
+}
+
 
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> CallToolResult:
     """Handle tool calls with proper error handling"""
 
     try:
-        pool = get_pool()
-
-        if name == "list_tables":
-            content = await handle_list_tables(pool, arguments)
-        elif name == "describe_table":
-            content = await handle_describe_table(pool, arguments)
-        elif name == "execute_query":
-            content = await handle_execute_query(pool, arguments)
-        elif name == "get_table_relationships":
-            content = await handle_table_relationships(pool, arguments)
-        elif name == "get_table_indexes":
-            content = await handle_table_indexes(pool, arguments)
-        elif name == "search_columns":
-            content = await handle_search_columns(pool, arguments)
-        elif name == "get_table_statistics":
-            content = await handle_table_statistics(pool, arguments)
-        elif name == "get_views":
-            content = await handle_get_views(pool, arguments)
-        elif name == "get_procedures":
-            content = await handle_get_procedures(pool, arguments)
-        elif name == "explain_query":
-            content = await handle_explain_query(pool, arguments)
-        elif name == "update_dictionary":
-            content = await handle_update_dictionary(pool, arguments)
-        else:
+        handler = _HANDLERS.get(name)
+        if handler is None:
             logger.error(f"Tool sconosciuto: {name}")
             return CallToolResult(
                 content=[TextContent(type="text", text=f"Tool '{name}' non riconosciuto")],
                 isError=True,
             )
 
+        arguments = arguments or {}
+        try:
+            db = databases.get_database(arguments.pop("database", None))
+        except KeyError as e:
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"❌ {e.args[0]}")],
+                isError=True,
+            )
+
+        content = await handler(db, arguments)
         return CallToolResult(content=content, isError=False)
 
     except TimeoutError as e:
@@ -347,8 +351,12 @@ async def main():
 
     logger.info("Avvio MCP SQL Server...")
 
-    if not config.CONNECTION_STRING:
-        logger.error("SQL_CONNECTION_STRING non configurata. Imposta la variabile d'ambiente o usa --connection-string.")
+    databases.load_databases()
+    if not databases.DATABASES:
+        logger.error(
+            "Nessun database configurato. Usa --databases file.json (multi-db) "
+            "o --connection-string / SQL_CONNECTION_STRING (singolo)."
+        )
         return
 
     try:
@@ -359,9 +367,7 @@ async def main():
                 app.create_initialization_options()
             )
     finally:
-        # Cleanup connection pool
-        if connection_pool:
-            connection_pool.close_all()
+        databases.close_all()
         logger.info("MCP SQL Server terminato")
 
 
