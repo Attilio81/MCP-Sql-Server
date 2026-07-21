@@ -25,6 +25,7 @@ def _parse_args():
         help="SQL Server connection string (e.g. Driver={ODBC Driver 17 for SQL Server};Server=...)",
     )
     parser.add_argument("--max-rows", type=int, help="Maximum rows returned per query (default: 100)")
+    parser.add_argument("--max-query-length", type=int, help="Maximum query length in characters (default: 100000)")
     parser.add_argument("--query-timeout", type=int, help="Query timeout in seconds (default: 30)")
     parser.add_argument("--pool-size", type=int, help="Connection pool size (default: 5)")
     parser.add_argument("--pool-timeout", type=int, help="Connection pool timeout in seconds (default: 30)")
@@ -50,7 +51,7 @@ def _parse_args():
 
 def _load_config():
     """Load configuration from CLI args and environment variables. Called lazily."""
-    global CONNECTION_STRING, MAX_ROWS, QUERY_TIMEOUT, POOL_SIZE, POOL_TIMEOUT
+    global CONNECTION_STRING, MAX_ROWS, QUERY_TIMEOUT, POOL_SIZE, POOL_TIMEOUT, MAX_QUERY_LENGTH
     global LOG_LEVEL, BLACKLIST_TABLES, ALLOWED_SCHEMAS, DICTIONARY_FILE, DATABASES_FILE, logger
 
     _args = _parse_args()
@@ -61,6 +62,7 @@ def _load_config():
     QUERY_TIMEOUT = _args.query_timeout if _args.query_timeout is not None else int(os.getenv("QUERY_TIMEOUT", "30"))
     POOL_SIZE = _args.pool_size if _args.pool_size is not None else int(os.getenv("POOL_SIZE", "5"))
     POOL_TIMEOUT = _args.pool_timeout if _args.pool_timeout is not None else int(os.getenv("POOL_TIMEOUT", "30"))
+    MAX_QUERY_LENGTH = _args.max_query_length if _args.max_query_length is not None else int(os.getenv("MAX_QUERY_LENGTH", "100000"))
 
     # Validate and set log level
     raw_log_level = (_args.log_level or os.getenv("LOG_LEVEL", "INFO")).upper()
@@ -103,4 +105,4 @@ DICTIONARY_FILE: str = "semantic_dictionary.md"
 DATABASES_FILE: Optional[str] = None
 logger = logging.getLogger(__name__)
 
-MAX_QUERY_LENGTH = 4096  # characters
+MAX_QUERY_LENGTH = 100000  # characters (overwritten by _load_config at startup)

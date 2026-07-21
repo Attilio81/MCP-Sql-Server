@@ -152,6 +152,7 @@ CLI arguments (single-db mode / global):
 | `--databases` | `DATABASES_FILE` | *(none)* | Path to databases.json — enables multi-database mode |
 | `--connection-string` | `SQL_CONNECTION_STRING` | *(required in single-db mode)* | ODBC connection string |
 | `--max-rows` | `MAX_ROWS` | `100` | Max rows per query (a `TOP` clause is injected if missing) |
+| `--max-query-length` | `MAX_QUERY_LENGTH` | `100000` | Max query length, characters (payload DoS guard) |
 | `--query-timeout` | `QUERY_TIMEOUT` | `30` | Query timeout, seconds |
 | `--pool-size` | `POOL_SIZE` | `5` | Connection pool size |
 | `--pool-timeout` | `POOL_TIMEOUT` | `30` | Pool acquisition timeout, seconds |
@@ -260,7 +261,7 @@ Then open <http://localhost:8090>. Requires `pip install -e ".[manager]"` (done 
 
 Defence in depth, applied in order on every query:
 
-1. **Length cap** (4096 chars) — payload DoS prevention
+1. **Length cap** (`MAX_QUERY_LENGTH`, default 100000 chars; `--max-query-length` / env `MAX_QUERY_LENGTH`) — payload DoS prevention
 2. **Null-byte rejection**
 3. **Unicode normalisation** — full-width lookalikes folded before matching
 4. **SELECT-only enforcement**

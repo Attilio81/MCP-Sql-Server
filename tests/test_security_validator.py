@@ -12,6 +12,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Import after path setup — the module no longer calls _parse_args() at import time
+from mcp_sqlserver import config  # noqa: E402
 from mcp_sqlserver.security import SecurityValidator  # noqa: E402
 from mcp_sqlserver.helpers import format_table_data, format_csv, format_json  # noqa: E402
 from mcp_sqlserver.tools.execute_query import ensure_top  # noqa: E402
@@ -158,7 +159,7 @@ class TestSecurityValidatorQuery(unittest.TestCase):
         self.assertFalse(ok)
 
     def test_reject_too_long_query(self):
-        ok, _ = SecurityValidator.validate_query("SELECT " + "a" * 5000)
+        ok, _ = SecurityValidator.validate_query("SELECT " + "a" * (config.MAX_QUERY_LENGTH + 1))
         self.assertFalse(ok)
 
     def test_valid_where_clause(self):

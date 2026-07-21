@@ -69,7 +69,7 @@ src/mcp_sqlserver/
 
 **Security validation**: `SecurityValidator` in `security.py` has three public class methods:
 - `is_table_allowed(table_name, schema, *, allowed_schemas=None, blacklist=None)` — validates identifier format, schema whitelist, and blacklist wildcard patterns; kwargs default to config globals (legacy), multi-db callers pass the per-database lists.
-- `validate_query(query)` — six ordered layers: length cap (4096 chars), null-byte check, Unicode normalisation, SELECT-only enforcement, injection regex patterns, dangerous keyword word-boundary check.
+- `validate_query(query)` — six ordered layers: length cap (`MAX_QUERY_LENGTH`, default 100000 chars, CLI `--max-query-length` / env `MAX_QUERY_LENGTH`), null-byte check, Unicode normalisation, SELECT-only enforcement, injection regex patterns, dangerous keyword word-boundary check.
 - `extract_table_names(query)` — token scanner that pulls table refs from FROM/JOIN/APPLY/comma-joins/subqueries; `execute_query` and `explain_query` pass each ref through `is_table_allowed` so blacklist/whitelist also cover free-form SELECTs.
 
 **Tool handler pattern**: Each tool lives in its own file under `tools/` and exports a single synchronous `def handle_*(db: Database, arguments)` function returning `list[TextContent]`; `db` carries the pool and per-database settings. Handlers do blocking pyodbc work: `call_tool()` runs them via `asyncio.to_thread` (dict dispatch through `_HANDLERS`), so handlers may execute concurrently — shared state needs locks (see `dictionary.py` `_write_lock`, `databases.py` `_pool_lock`). To add a new tool: create the handler file, re-export from `tools/__init__.py`, add a `Tool(...)` entry in `list_tools()`, and add the entry to `_HANDLERS`.
