@@ -46,6 +46,7 @@ env/
 # Configuration with credentials
 claude_desktop_config_*.json
 .claude/mcp.json
+databases.json
 
 # IDE
 .vscode/

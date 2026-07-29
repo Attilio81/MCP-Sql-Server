@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP SQL Server is a Python MCP (Model Context Protocol) server that exposes SQL Server database inspection and querying capabilities to Claude Desktop and Claude Code. It implements connection pooling, multi-layer SQL injection prevention, schema/table access controls, and the MCP 2025-11-25 spec (Tools, Resources).
+MCP SQL Server is a Python MCP (Model Context Protocol) server that exposes SQL Server database inspection and querying capabilities to Claude Desktop and Claude Code. It implements connection pooling, multi-layer SQL injection prevention, schema/table access controls, and the MCP 2026-07-28 spec (Tools, Resources).
 
 ## Development Commands
 
@@ -74,14 +74,14 @@ src/mcp_sqlserver/
 
 **Tool handler pattern**: Each tool lives in its own file under `tools/` and exports a single synchronous `def handle_*(db: Database, arguments)` function returning `list[TextContent]`; `db` carries the pool and per-database settings. Handlers do blocking pyodbc work: `call_tool()` runs them via `asyncio.to_thread` (dict dispatch through `_HANDLERS`), so handlers may execute concurrently — shared state needs locks (see `dictionary.py` `_write_lock`, `databases.py` `_pool_lock`). To add a new tool: create the handler file, re-export from `tools/__init__.py`, add a `Tool(...)` entry in `list_tools()`, and add the entry to `_HANDLERS`.
 
-**MCP resources** are registered at module load time via `register_resources(app, get_pool)` called at the top of `server.py`, before the tool decorators. (MCP Prompts were removed — Claude handles analysis naturally.)
+**SDK v2 handler wiring**: the server targets `mcp>=2.0.0` (spec 2026-07-28), which dropped the decorator API. Every handler is a plain `async def handler(ctx, params)` returning a full result object (`ListToolsResult`, `CallToolResult`, `ListResourcesResult`, …) — there is no auto-wrapping of bare lists any more. `app = Server("mcp-sqlserver", on_list_tools=..., on_call_tool=..., on_list_resources=..., on_list_resource_templates=..., on_read_resource=...)` is built near the bottom of `server.py`, after the handlers it references. Tool name and arguments come from `params.name` / `params.arguments`. Model fields are snake_case: camelCase still works as a **constructor kwarg** (`inputSchema=`) thanks to `populate_by_name`, but attribute access must be snake_case (`tool.input_schema`). Resource handlers live in `resources.py` as module-level functions. (MCP Prompts were removed — Claude handles analysis naturally.) `stdio_server()` and `app.run(read, write, create_initialization_options())` are unchanged from v1, and a v2 server still answers the legacy `initialize` handshake, so older clients keep working.
 
 ### Adding a New Tool
 
-1. Create `src/mcp_sqlserver/tools/my_tool.py` with `async def handle_my_tool(pool, arguments)`.
+1. Create `src/mcp_sqlserver/tools/my_tool.py` with `def handle_my_tool(db, arguments)` returning `list[TextContent]`.
 2. Re-export from `tools/__init__.py`.
 3. Add `Tool(name="my_tool", ...)` to `list_tools()` in `server.py`.
-4. Add `elif name == "my_tool": content = await handle_my_tool(pool, arguments)` in `call_tool()`.
+4. Add the entry to `_HANDLERS` in `server.py`.
 5. Add tests in `tests/`.
 6. Update README.md under "Available Tools".
 

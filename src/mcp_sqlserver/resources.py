@@ -11,87 +11,96 @@ keep working as aliases for the only configured database.
 import asyncio
 from pathlib import Path
 
-from mcp.types import Resource, ResourceTemplate
+from mcp.types import (
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ReadResourceResult,
+    Resource,
+    ResourceTemplate,
+    TextResourceContents,
+)
 
 from mcp_sqlserver import databases
 from mcp_sqlserver.databases import Database
 from mcp_sqlserver.security import SecurityValidator
 
 
-def register_resources(app):
-    """Register all resource handlers on the MCP app."""
-
-    @app.list_resources()
-    async def list_resources() -> list[Resource]:
-        """Per-database schema overview and semantic dictionary."""
-        multi = databases.is_multi()
-        resources: list[Resource] = []
-        for name in sorted(databases.DATABASES):
-            prefix = f"db://{name}" if multi else "db:/"
-            label = f" [{name}]" if multi else ""
-            resources.append(Resource(
-                uri=f"{prefix}/schema/overview",
-                name=f"database-schema-overview{('-' + name) if multi else ''}",
-                title=f"Database Schema Overview{label}",
-                description=f"Panoramica completa dello schema{label}: tabelle, colonne, tipi e chiavi primarie",
-                mimeType="text/plain",
-            ))
-            resources.append(Resource(
-                uri=f"{prefix}/dictionary",
-                name=f"semantic-dictionary{('-' + name) if multi else ''}",
-                title=f"Semantic Dictionary{label}",
-                description=(
-                    f"Dizionario semantico{label}: mappa tra linguaggio di business e schema fisico. "
-                    "Carica questa risorsa all'inizio della sessione per conoscere le associazioni già scoperte."
-                ),
-                mimeType="text/markdown",
-            ))
-        return resources
-
-    @app.list_resource_templates()
-    async def list_resource_templates() -> list[ResourceTemplate]:
-        if databases.is_multi():
-            template = "db://{database}/schema/tables/{table_name}"
-        else:
-            template = "db://schema/tables/{table_name}"
-        return [
-            ResourceTemplate(
-                uriTemplate=template,
-                name="table-schema",
-                title="Table Schema",
-                description="Schema dettagliato di una singola tabella (colonne, tipi, chiavi)",
-                mimeType="text/plain",
+async def list_resources(ctx, params) -> ListResourcesResult:
+    """Per-database schema overview and semantic dictionary."""
+    multi = databases.is_multi()
+    resources: list[Resource] = []
+    for name in sorted(databases.DATABASES):
+        prefix = f"db://{name}" if multi else "db:/"
+        label = f" [{name}]" if multi else ""
+        resources.append(Resource(
+            uri=f"{prefix}/schema/overview",
+            name=f"database-schema-overview{('-' + name) if multi else ''}",
+            title=f"Database Schema Overview{label}",
+            description=f"Panoramica completa dello schema{label}: tabelle, colonne, tipi e chiavi primarie",
+            mimeType="text/plain",
+        ))
+        resources.append(Resource(
+            uri=f"{prefix}/dictionary",
+            name=f"semantic-dictionary{('-' + name) if multi else ''}",
+            title=f"Semantic Dictionary{label}",
+            description=(
+                f"Dizionario semantico{label}: mappa tra linguaggio di business e schema fisico. "
+                "Carica questa risorsa all'inizio della sessione per conoscere le associazioni già scoperte."
             ),
-        ]
+            mimeType="text/markdown",
+        ))
+    return ListResourcesResult(resources=resources)
 
-    @app.read_resource()
-    async def read_resource(uri: str) -> str:
-        """Read a resource by URI (named or legacy single-db form)."""
-        uri_str = str(uri)
-        if not uri_str.startswith("db://"):
-            raise ValueError(f"Risorsa sconosciuta: {uri_str}")
-        path = uri_str[len("db://"):]
 
-        # Legacy unnamed URIs → the only configured database
-        if path in ("schema/overview", "dictionary") or path.startswith("schema/tables/"):
-            db = databases.get_database()  # raises if ambiguous (multi-db)
-        else:
-            name, _, path = path.partition("/")
-            db = databases.get_database(name)
+async def list_resource_templates(ctx, params) -> ListResourceTemplatesResult:
+    if databases.is_multi():
+        template = "db://{database}/schema/tables/{table_name}"
+    else:
+        template = "db://schema/tables/{table_name}"
+    return ListResourceTemplatesResult(resourceTemplates=[
+        ResourceTemplate(
+            uriTemplate=template,
+            name="table-schema",
+            title="Table Schema",
+            description="Schema dettagliato di una singola tabella (colonne, tipi, chiavi)",
+            mimeType="text/plain",
+        ),
+    ])
 
-        # Blocking pyodbc work runs in a worker thread (same as tool handlers)
-        if path == "schema/overview":
-            return await asyncio.to_thread(_read_schema_overview, db)
-        if path == "dictionary":
-            return await asyncio.to_thread(_read_dictionary, db)
-        prefix = "schema/tables/"
-        if path.startswith(prefix):
-            table_name = path[len(prefix):]
-            if not table_name:
-                raise ValueError("Nome tabella mancante nell'URI")
-            return await asyncio.to_thread(_read_table_schema, db, table_name)
 
+async def read_resource(ctx, params) -> ReadResourceResult:
+    """Read a resource by URI (named or legacy single-db form)."""
+    uri_str = str(params.uri)
+    if not uri_str.startswith("db://"):
         raise ValueError(f"Risorsa sconosciuta: {uri_str}")
+    path = uri_str[len("db://"):]
+
+    # Legacy unnamed URIs → the only configured database
+    if path in ("schema/overview", "dictionary") or path.startswith("schema/tables/"):
+        db = databases.get_database()  # raises if ambiguous (multi-db)
+    else:
+        name, _, path = path.partition("/")
+        db = databases.get_database(name)
+
+    # Blocking pyodbc work runs in a worker thread (same as tool handlers)
+    if path == "schema/overview":
+        text = await asyncio.to_thread(_read_schema_overview, db)
+        mime = "text/plain"
+    elif path == "dictionary":
+        text = await asyncio.to_thread(_read_dictionary, db)
+        mime = "text/markdown"
+    elif path.startswith("schema/tables/"):
+        table_name = path[len("schema/tables/"):]
+        if not table_name:
+            raise ValueError("Nome tabella mancante nell'URI")
+        text = await asyncio.to_thread(_read_table_schema, db, table_name)
+        mime = "text/plain"
+    else:
+        raise ValueError(f"Risorsa sconosciuta: {uri_str}")
+
+    return ReadResourceResult(contents=[
+        TextResourceContents(uri=uri_str, text=text, mimeType=mime),
+    ])
 
 
 def _read_schema_overview(db: Database) -> str:

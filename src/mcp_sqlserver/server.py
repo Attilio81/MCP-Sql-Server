@@ -6,15 +6,14 @@ Implements connection pooling, SQL injection prevention, and comprehensive secur
 
 import asyncio
 import logging
-from typing import Any
 
 import pyodbc
 from mcp.server import Server
-from mcp.types import Tool, TextContent, CallToolResult
+from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult
 
 from mcp_sqlserver import databases
 from mcp_sqlserver.config import _load_config
-from mcp_sqlserver.resources import register_resources
+from mcp_sqlserver import resources
 from mcp_sqlserver.tools import (
     handle_list_tables,
     handle_describe_table,
@@ -31,23 +30,12 @@ from mcp_sqlserver.tools import (
 
 logger = logging.getLogger(__name__)
 
-# Initialize MCP server
-app = Server("mcp-sqlserver")
-
-
-# ------------------------------------------------------------------ #
-#  Register Resources                                                 #
-# ------------------------------------------------------------------ #
-
-register_resources(app)
-
 
 # ------------------------------------------------------------------ #
 #  Tools                                                              #
 # ------------------------------------------------------------------ #
 
-@app.list_tools()
-async def list_tools() -> list[Tool]:
+async def list_tools(ctx, params) -> ListToolsResult:
     """List available tools. In multi-db mode every tool gets a required 'database' parameter."""
     tools = [
         Tool(
@@ -276,11 +264,11 @@ async def list_tools() -> list[Tool]:
             "description": "Database di destinazione",
         }
         for tool in tools:
-            tool.inputSchema.setdefault("properties", {})["database"] = db_property
-            required = tool.inputSchema.setdefault("required", [])
+            tool.input_schema.setdefault("properties", {})["database"] = db_property
+            required = tool.input_schema.setdefault("required", [])
             required.insert(0, "database")
 
-    return tools
+    return ListToolsResult(tools=tools)
 
 
 _HANDLERS = {
@@ -298,10 +286,10 @@ _HANDLERS = {
 }
 
 
-@app.call_tool()
-async def call_tool(name: str, arguments: Any) -> CallToolResult:
+async def call_tool(ctx, params) -> CallToolResult:
     """Handle tool calls with proper error handling"""
 
+    name = params.name
     try:
         handler = _HANDLERS.get(name)
         if handler is None:
@@ -311,7 +299,7 @@ async def call_tool(name: str, arguments: Any) -> CallToolResult:
                 isError=True,
             )
 
-        arguments = arguments or {}
+        arguments = dict(params.arguments or {})
         try:
             db = databases.get_database(arguments.pop("database", None))
         except KeyError as e:
@@ -343,6 +331,18 @@ async def call_tool(name: str, arguments: Any) -> CallToolResult:
             content=[TextContent(type="text", text=f"❌ Errore: {str(e)}")],
             isError=True,
         )
+
+
+# Handlers are passed to the constructor (SDK v2 dropped the decorator API), so the
+# server must be built after they are defined.
+app = Server(
+    "mcp-sqlserver",
+    on_list_tools=list_tools,
+    on_call_tool=call_tool,
+    on_list_resources=resources.list_resources,
+    on_list_resource_templates=resources.list_resource_templates,
+    on_read_resource=resources.read_resource,
+)
 
 
 async def main():

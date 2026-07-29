@@ -149,9 +149,12 @@ def register_claude_code():
     if not claude_exe:
         return {"ok": False, "error": "Claude CLI non trovato. Installa Claude Code e verifica che 'claude' sia nel PATH."}
 
+    # Register the interpreter running the manager (its venv), not a bare "python":
+    # the MCP SDK is pinned to v2 here and would clash with v1 servers sharing a
+    # global site-packages.
     # The "--" stops claude's own option parser so it doesn't interpret "-m" as its flag.
     cmd = [claude_exe, "mcp", "add", config_manager.MCP_ENTRY_NAME, "--scope", "user",
-           "--", "python", "-m", "mcp_sqlserver.server",
+           "--", sys.executable, "-m", "mcp_sqlserver.server",
            "--databases", str(config_manager.databases_path())]
 
     try:
