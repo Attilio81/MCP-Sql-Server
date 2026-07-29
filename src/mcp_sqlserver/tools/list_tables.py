@@ -19,7 +19,7 @@ def handle_list_tables(db: Database, arguments: dict) -> list[TextContent]:
             SELECT
                 s.name as SchemaName,
                 t.name as TableName,
-                p.rows as RowCount,
+                p.rows as [RowCount],
                 CAST(SUM(a.total_pages) * 8 / 1024.0 AS DECIMAL(10,2)) as SizeMB
             FROM sys.tables t
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
